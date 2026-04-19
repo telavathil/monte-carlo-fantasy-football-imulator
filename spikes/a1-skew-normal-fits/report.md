@@ -1,7 +1,9 @@
 # Spike A1 Report — Skew-Normal Fit Sanity Check
 
+> **Status update (2026-04-18, post-revision):** The KILL verdict below was addressed in the design by **ADR-0012** (mixed distribution families: skew-normal for continuous yard stats, negative-binomial for count stats) and **ADR-0015** (Poisson fallback + scale inflation). The downstream calibration question is validated in [Spike A2](../a2-calibration/report.md) (v3: 65.9% coverage, BORDERLINE). This spike is retained as historical evidence; no re-run needed — its finding about count-stat misfit drove the revised architecture.
+
 **Date:** 2026-04-18
-**Validates:** ADR-0004 (simulation engine — veterans-only, per-stat skew-normal).
+**Validates (originally):** ADR-0004 (simulation engine — veterans-only, per-stat skew-normal).
 **Kill criterion:** <50% of (player, stat) pairs show acceptable fit (Q-Q R² ≥ 0.95).
 
 ## Results

@@ -28,6 +28,7 @@ We use [MADR 3.0](https://adr.github.io/madr/) to record architecturally signifi
 | [0012](0012-mixed-distribution-families-for-stat-simulation.md) | Mixed distribution families (skew-normal for continuous, negative-binomial for counts) | Accepted — supersedes 0004 family choice |
 | [0013](0013-identity-resolution-team-abbreviation-normalization.md) | Identity resolution team-abbreviation normalization + canonical refresh | Accepted — amends 0005 |
 | [0014](0014-explicit-parquet-persistence-for-historical-data.md) | Explicit Parquet persistence for historical data | Accepted — amends 0006 |
+| [0015](0015-calibration-refinements-poisson-fallback-and-scale-inflation.md) | Calibration refinements: Poisson fallback + skewnorm scale inflation | Accepted — amends 0012 |
 
 ## Template
 

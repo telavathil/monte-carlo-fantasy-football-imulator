@@ -3,8 +3,8 @@
 **Status:** Approved for implementation planning
 **Date:** 2026-04-18
 **Scope:** Phase 1 MVP (per Requirements v1.2, §9 Phase 1, narrowed)
-**Related ADRs:** [0001](../../adr/0001-record-architecture-decisions.md) through [0014](../../adr/0014-explicit-parquet-persistence-for-historical-data.md).
-**Post-spike revisions:** [ADR-0012](../../adr/0012-mixed-distribution-families-for-stat-simulation.md) supersedes [0004](../../adr/0004-simulation-engine-veterans-only-skew-normal.md) for family choice; [ADR-0013](../../adr/0013-identity-resolution-team-abbreviation-normalization.md) amends [0005](../../adr/0005-identity-resolution-tiers-1-and-3-only.md); [ADR-0014](../../adr/0014-explicit-parquet-persistence-for-historical-data.md) amends [0006](../../adr/0006-sqlite-on-fly-volume-with-nflreadpy-cache.md). See [`spikes/GATING.md`](../../../spikes/GATING.md) for the spike evidence that drove these revisions.
+**Related ADRs:** [0001](../../adr/0001-record-architecture-decisions.md) through [0015](../../adr/0015-calibration-refinements-poisson-fallback-and-scale-inflation.md).
+**Post-spike revisions:** [ADR-0012](../../adr/0012-mixed-distribution-families-for-stat-simulation.md) supersedes [0004](../../adr/0004-simulation-engine-veterans-only-skew-normal.md) for family choice (A1 finding); [ADR-0013](../../adr/0013-identity-resolution-team-abbreviation-normalization.md) amends [0005](../../adr/0005-identity-resolution-tiers-1-and-3-only.md) (B1 finding); [ADR-0014](../../adr/0014-explicit-parquet-persistence-for-historical-data.md) amends [0006](../../adr/0006-sqlite-on-fly-volume-with-nflreadpy-cache.md) (C1 finding); [ADR-0015](../../adr/0015-calibration-refinements-poisson-fallback-and-scale-inflation.md) amends [0012](../../adr/0012-mixed-distribution-families-for-stat-simulation.md) with Poisson fallback + scale inflation (A2 v3 finding). See [`spikes/GATING.md`](../../../spikes/GATING.md) for the spike evidence.
 
 ---
 
@@ -278,13 +278,15 @@ Each backend module has a single responsibility and a narrow public interface. A
 ### `sim/`
 
 - **`families.py`** — (new per [ADR-0012](../../adr/0012-mixed-distribution-families-for-stat-simulation.md)) — `STAT_FAMILY` dict mapping each canonical stat name to `"skewnorm"` (continuous yard/reception stats) or `"nbinom"` (count stats: passing_tds, passing_interceptions, rushing_tds, receiving_tds, rushing_fumbles_lost). Single source of truth for family choice.
-- **`fitting.py`** — `fit_player(player_id, projection, historical_games) → params`:
+- **`fitting.py`** — `fit_player(player_id, projection, historical_games) → params`. Dispatch rules per [ADR-0012](../../adr/0012-mixed-distribution-families-for-stat-simulation.md) as refined by [ADR-0015](../../adr/0015-calibration-refinements-poisson-fallback-and-scale-inflation.md):
   1. If `len(historical_games) < 4`: raise `InsufficientHistoryError`.
-  2. For each stat in the projection that's also scoreable in the active preset: recency-weight the game-log rows (`[0.50, 0.30, 0.20]` for seasons Y, Y-1, Y-2). Dispatch on `STAT_FAMILY[stat]`:
-     - `skewnorm`: fit via `scipy.stats.skewnorm.fit`, mean-shift so the fitted mean equals the projected stat. Store `{"family":"skewnorm", "alpha":…, "loc":…, "scale":…}`.
-     - `nbinom`: fit via method-of-moments (`n = μ²/(σ²−μ)`, `p = μ/σ²`). Mean-shift by scaling `n` while holding dispersion (`σ²/μ`) constant. Store `{"family":"nbinom", "n":…, "p":…}`.
+  2. For each stat in the projection that's also scoreable in the active preset: recency-weight the game-log rows (`[0.50, 0.30, 0.20]` for seasons Y, Y-1, Y-2). Dispatch:
+     - **Category `skewnorm` + `mean(train) < 1.5`** (sparse continuous, e.g. WR rushing yards) → **Poisson** with `λ = max(target_mean, 0.1)`. Store `{"family":"poisson", "lam":…}`.
+     - **Category `skewnorm` + `mean(train) ≥ 1.5`** → fit `scipy.stats.skewnorm.fit`, **multiply `scale` by 1.10** (scale inflation), then mean-shift `loc` so the fitted mean equals the projected stat. Store `{"family":"skewnorm", "alpha":…, "loc":…, "scale":…}`.
+     - **Category `nbinom` + `mean(train) ≤ 0.2`** OR MoM produces invalid params (non-finite or under-dispersed) → **Poisson** with `λ = max(target_mean, 0.1)`. Store `{"family":"poisson", "lam":…}`.
+     - **Category `nbinom` otherwise** → MoM fit (`n = μ²/(σ²−μ)`, `p = μ/σ²`), mean-shift by scaling `n` while holding dispersion (`σ²/μ`) constant. Store `{"family":"nbinom", "n":…, "p":…}`.
   3. Upsert into `player_distribution_params`.
-- **`sampler.py`** — `sample(params, n=5000, seed=None) → dict[stat, ndarray]`. For each stat in `params`: dispatch on `family` → `skewnorm.rvs` (clamped to `≥0`) or `nbinom.rvs` (already non-negative integers). Samples independently per stat (no covariance — [ADR-0004](../../adr/0004-simulation-engine-veterans-only-skew-normal.md) unchanged on this point).
+- **`sampler.py`** — `sample(params, n=5000, seed=None) → dict[stat, ndarray]`. For each stat in `params`: dispatch on `family` → `skewnorm.rvs` (clamped to `≥0`), `nbinom.rvs`, or `poisson.rvs` (both already non-negative integers). Samples independently per stat (no covariance — [ADR-0004](../../adr/0004-simulation-engine-veterans-only-skew-normal.md) unchanged on this point).
 - **`runner.py`** — `simulate_player(player_id, n) → SimResult`. Loads or computes fit, samples, calls `scoring.engine.score` on each of the `n` stat lines, returns percentiles (p10, p50, p90), mean, std, and histogram bins.
 
 ### `routers/`
@@ -298,7 +300,7 @@ Four pages, no router complexity, minimal styling.
 - **`SettingsPage.tsx`** (`/`) — read + write `/api/league/config`.
 - **`ImportPage.tsx`** (`/import`) — file upload + paste-HTML textarea + source dropdown. POST to `/api/imports/stats` or `/api/imports/adp`. Inline list of unresolved rows with a player-picker dropdown populated by `/api/players`.
 - **`PlayersPage.tsx`** (`/players`) — GET `/api/players`, display as a sortable table (column click → re-sort client-side; no server pagination).
-- **`PlayerDetailPage.tsx`** (`/players/:id`) — projected stat line with per-stat point contribution, plus a Recharts `BarChart` of histogram bins from `/api/players/{id}/distribution`.
+- **`PlayerDetailPage.tsx`** (`/players/:id`) — projected stat line with per-stat point contribution, plus a Recharts `BarChart` of histogram bins from `/api/players/{id}/distribution`. **Must display a calibration caveat** (per [ADR-0015](../../adr/0015-calibration-refinements-poisson-fallback-and-scale-inflation.md)): *"Distributions reflect the uncertainty around the imported projection. Calibration to actual season outcomes is approximate (~65-70% at the 80% interval in backtest; expected to improve with real preseason projections). Treat intervals as informed bounds, not guarantees."*
 
 `web/src/api/client.ts` is generated from `shared/openapi.json`. A `make regen-client` target runs the generator.
 
@@ -590,7 +592,7 @@ GitHub Actions, two parallel jobs (`api-test`, `web-test`). No network access. B
 | R2 | Fly `shared-cpu-1x` default 256 MB RAM may be tight with 3 seasons × 19k rows × 114 cols in memory simultaneously. | Provision at 512 MB; profile during development; stream per-position if necessary. |
 | R3 | Fly free tier is `$5/month credit` rather than fully free; small costs may accrue. | Estimate <$5/mo at MVP scale; `fly scale count 0` when not in use. |
 | R4 | FantasyPros HTML structure may change. | One parser file + committed fixture; regression test catches breakage. |
-| R5 | No intra-player stat covariance → a QB's 4-TD game is sampled as 4 TDs but independently in yards. | Accepted limitation; multivariate upgrade is contained in `sim/fitting.py`. |
+| R5 | No intra-player stat covariance → a QB's 4-TD game is sampled as 4 TDs but independently in yards. Additionally, weekly-IID sampling undersells season-total variance because weeks aren't really independent (slumps, game-state, ramp-ups correlate within a season). Spike A2 v3 backtest coverage at the 80% interval is 65.9% vs 80% target. | Accepted limitation; partially mitigated by ADR-0015's 1.10× scale inflation. Multivariate upgrade and/or cross-week correlation modeling are contained to `sim/fitting.py` and are Phase-2 work. Phase-2 calibration retrospective with real preseason projections will re-measure. |
 | R6 | `ff_playerids` `db_season=2025` — 2026 rookies absent until source updates. | Manual refresh endpoint; user re-seeds before draft prep. |
 
 ### Known limitations carried into MVP (from Requirements v1.2 §10.3)
@@ -723,4 +725,5 @@ All decisions in this spec link to MADR 3.0 records under `docs/adr/`. See [`doc
 | [0012](../../adr/0012-mixed-distribution-families-for-stat-simulation.md) | Mixed distribution families — skew-normal for continuous, negative-binomial for counts (supersedes 0004 family choice) |
 | [0013](../../adr/0013-identity-resolution-team-abbreviation-normalization.md) | Team-abbreviation normalization + canonical-refresh endpoint (amends 0005) |
 | [0014](../../adr/0014-explicit-parquet-persistence-for-historical-data.md) | Explicit Parquet persistence; nflreadpy cache is in-process (amends 0006) |
+| [0015](../../adr/0015-calibration-refinements-poisson-fallback-and-scale-inflation.md) | Calibration refinements: Poisson fallback + skewnorm scale inflation (amends 0012) |
 | [0011](../../adr/0011-gate-implementation-on-pre-implementation-spikes.md) | Gate implementation on pre-implementation spikes |
