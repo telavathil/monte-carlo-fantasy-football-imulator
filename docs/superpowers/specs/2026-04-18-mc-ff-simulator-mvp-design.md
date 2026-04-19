@@ -99,11 +99,9 @@ monte-carlo-fantasy-football-imulator/
 
 On API startup, `app/main.py`:
 1. Runs SQLite migrations.
-2. Calls `historical.fetch.ensure_seed()` which:
-   a. Configures `NFLREADPY_CACHE_DIR=/data/historical`.
-   b. If the `player` table is empty: calls `nflreadpy.load_ff_playerids()`, filters to rows with `gsis_id IS NOT NULL`, upserts into `player`.
-   c. If cached Parquet for any of the last 3 seasons is missing: calls `nflreadpy.load_player_stats(seasons=[Y-2, Y-1, Y])` to populate cache.
-3. Marks server ready. Subsequent boots skip steps 2b and 2c if state is present.
+2. If the `player` table is empty: calls `nflreadpy.load_ff_playerids()`, filters to rows with `gsis_id IS NOT NULL`, upserts into `player`.
+3. Calls `historical.fetch.ensure_seasons([Y-2, Y-1, Y])` which, for each season where `/data/historical/player_stats_{y}.parquet` is missing, fetches via `nflreadpy.load_player_stats(seasons=[y])` and explicitly writes the Parquet to the volume (per [ADR-0014](../../adr/0014-explicit-parquet-persistence-for-historical-data.md) — nflreadpy's own cache is in-process only).
+4. Marks server ready. Subsequent boots skip steps 2–3 if state is present.
 
 First boot: ~30–90 seconds. Subsequent boots: sub-second.
 
@@ -313,14 +311,15 @@ Four pages, no router complexity, minimal styling.
 ```
 API process starts
   → db.migrate()
-  → historical.fetch.ensure_seed()
-      → set NFLREADPY_CACHE_DIR=/data/historical
-      → if player table empty:
-          nflreadpy.load_ff_playerids()
-            → filter gsis_id IS NOT NULL
-            → upsert into `player`
-      → for y in [Y-2, Y-1, Y]:
-          if cache miss: nflreadpy.load_player_stats([y])
+  → if player table empty:
+      nflreadpy.load_ff_playerids()
+        → filter gsis_id IS NOT NULL
+        → upsert into `player`
+  → historical.fetch.ensure_seasons([Y-2, Y-1, Y])
+      → for y in years:
+          if /data/historical/player_stats_{y}.parquet missing:
+            df = nflreadpy.load_player_stats([y])
+            df.write_parquet(/data/historical/player_stats_{y}.parquet)
   → server ready
 ```
 
