@@ -1,20 +1,16 @@
 """
-Spike A2 (re-run v2): Mean-shift calibration backtest, mixed families,
-with nbinom near-zero fix (Poisson fallback) and ~40-player pool.
+Spike A2 (re-run v3): v2 + two skewnorm fixes.
 
-Method: hold out 2024; fit on 2021–2023 regular-season weekly data
-(recency [0.5, 0.3, 0.2]); mean-shift to 2024 projection proxy
-(weighted prior-year per-game avg × 2024 games); sample 5000 season
-totals; check actual 2024 season total ∈ p10–p90 interval.
+v3 adds:
+- Near-zero continuous routing: if historical mean(values) < 1.5 for a
+  skewnorm-categorized stat, use Poisson fallback instead. Catches sparse
+  continuous stats (e.g. WR rushing yards) where clipped skewnorm produces
+  a positive p10 that actual-zero misses.
+- Scale inflation: skewnorm.scale *= 1.10 after fit, before mean-shift.
+  Widens intervals by ~10% to account for cross-game correlation we don't
+  model (weekly IID samples understate season-total variance).
 
-Family dispatch:
-  skewnorm path (continuous): mean-shift loc by (target − current).
-  nbinom path (counts):       MoM fit, shift by scaling n to hit target
-                              mean while preserving dispersion (σ²/μ).
-  Poisson fallback:           when historical mean ≤ 0.2 or MoM params
-                              are non-finite, use Poisson(λ = max(mean, 0.1)).
-
-Kill criterion: coverage <60% or >95% across player-stat pairs.
+Kill criterion: coverage <60% or >95%. Target pass: 70-90%.
 """
 from __future__ import annotations
 import csv
@@ -26,7 +22,10 @@ from scipy import stats
 
 N_SAMPLES = 5000
 SEED = 42
-POOL_SIZE_PER_POSITION = 10   # top-10 QB, RB, WR, TE → ~40 players
+POOL_SIZE_PER_POSITION = 10
+
+SKEWNORM_SCALE_INFLATION = 1.10
+SKEWNORM_NEAR_ZERO_THRESHOLD = 1.5  # mean < this → Poisson
 
 STATS_BY_POS = {
     "QB": ["passing_yards", "passing_tds", "passing_interceptions",
@@ -56,16 +55,11 @@ STAT_FAMILY = {
 
 WEIGHTS = {2023: 0.50, 2022: 0.30, 2021: 0.20}
 
-
-# --- Player pool selection ---
-
-# Which stat determines "top-N" per position?
 RANK_STAT = {"QB": "passing_yards", "RB": "rushing_yards",
              "WR": "receiving_yards", "TE": "receiving_yards"}
 
 
 def select_pool(hist) -> dict:
-    """Top-N players per position by 2021-2023 total of their primary stat."""
     pool = {}
     train = hist[hist["season"].isin([2021, 2022, 2023])]
     for pos, rank_stat in RANK_STAT.items():
@@ -79,45 +73,45 @@ def select_pool(hist) -> dict:
     return pool
 
 
-# --- Fitting + shifting ---
-
 def fit_shift_skewnorm(values: np.ndarray, target_mean: float):
+    """Skew-normal fit with scale inflation + mean-shift."""
     alpha, loc, scale = stats.skewnorm.fit(values)
+    scale = scale * SKEWNORM_SCALE_INFLATION   # v3: inflate
     delta = alpha / np.sqrt(1 + alpha ** 2)
     current_mean = loc + scale * delta * np.sqrt(2 / np.pi)
     return ("skewnorm", alpha, loc + (target_mean - current_mean), scale)
 
 
-def fit_shift_nbinom_or_poisson(values: np.ndarray, target_mean: float):
-    """
-    Count stat fit with Poisson fallback for near-zero cases.
+def fit_shift_poisson(target_mean: float):
+    return ("poisson", max(target_mean, 0.1))
 
-    - If historical mean ≤ 0.2 OR MoM would produce non-finite/undispersed
-      params → fall back to Poisson with λ = max(target_mean, 0.1).
-    - Otherwise nbinom MoM with dispersion-preserving shift.
-    """
+
+def fit_shift_count(values: np.ndarray, target_mean: float):
+    """nbinom MoM with Poisson fallback (v2 logic retained)."""
     mu = float(values.mean())
     var = float(values.var(ddof=1)) if len(values) > 1 else max(mu, 1e-6)
-
-    if mu <= 0.2:
-        lam = max(target_mean, 0.1)
-        return ("poisson", lam)
-
-    if var <= mu:
-        # Under-dispersed: Poisson is the right model
-        return ("poisson", max(target_mean, 0.1))
-
-    # Full nbinom path: compute params, verify finite/valid, else Poisson fallback
-    n0 = mu ** 2 / (var - mu)
+    if mu <= 0.2 or var <= mu:
+        return fit_shift_poisson(target_mean)
     new_mu = max(target_mean, 1e-6)
-    new_var = new_mu * (var / mu)
+    new_var = new_mu * (var / mu) if mu > 0 else new_mu * 1.01
     if new_var <= new_mu:
         new_var = new_mu * 1.01 + 1e-6
     n = new_mu ** 2 / (new_var - new_mu)
     p = new_mu / new_var
     if not (math.isfinite(n) and math.isfinite(p)) or n <= 0 or not (0 < p <= 1):
-        return ("poisson", max(target_mean, 0.1))
+        return fit_shift_poisson(target_mean)
     return ("nbinom", n, p)
+
+
+def dispatch_fit(values: np.ndarray, target_mean: float, family_cat: str):
+    """Top-level dispatcher with v3 near-zero routing for continuous stats."""
+    if family_cat == "skewnorm":
+        if float(values.mean()) < SKEWNORM_NEAR_ZERO_THRESHOLD:
+            # v3: sparse continuous stat → Poisson models this better
+            return fit_shift_poisson(target_mean)
+        return fit_shift_skewnorm(values, target_mean)
+    else:  # "nbinom"
+        return fit_shift_count(values, target_mean)
 
 
 def sample_season(params_tuple, n_games: int, rng) -> np.ndarray:
@@ -141,14 +135,12 @@ def sample_season(params_tuple, n_games: int, rng) -> np.ndarray:
     return s.sum(axis=1)
 
 
-# --- Main ---
-
 def main() -> int:
-    print("Loading historical 2021–2024 …")
+    print("Loading historical 2021\u20132024 \u2026")
     hist = nfl.load_player_stats(seasons=[2021, 2022, 2023, 2024]).to_pandas()
     hist = hist[hist["season_type"] == "REG"]
 
-    print("\nSelecting player pool (top-10 per position by 2021-2023 primary stat):")
+    print("\nSelecting player pool:")
     pool = select_pool(hist)
 
     records = []
@@ -182,10 +174,7 @@ def main() -> int:
 
                 fam_cat = STAT_FAMILY.get(stat, "skewnorm")
                 try:
-                    if fam_cat == "skewnorm":
-                        shifted = fit_shift_skewnorm(train_vals, weighted_avg)
-                    else:
-                        shifted = fit_shift_nbinom_or_poisson(train_vals, weighted_avg)
+                    shifted = dispatch_fit(train_vals, weighted_avg, fam_cat)
                 except Exception as e:
                     print(f"    fit error {pos} {name} {stat}: {e}")
                     continue
@@ -197,7 +186,9 @@ def main() -> int:
 
                 records.append({
                     "pos": pos, "player": name, "stat": stat,
+                    "family_category": fam_cat,
                     "family_used": shifted[0],
+                    "train_mean": round(float(train_vals.mean()), 3),
                     "games_train": len(train_vals),
                     "games_test": test_games,
                     "projection_total": round(projection_total, 2),
@@ -218,15 +209,27 @@ def main() -> int:
     hits = sum(1 for r in records if r["inside_p10_p90"])
     print(f"\nOVERALL coverage: {hits}/{n} = {100*hits/n:.1f}% (target 80%)")
 
-    by_fam = {}
+    by_used = {}
     for r in records:
-        by_fam.setdefault(r["family_used"], {"hit": 0, "total": 0})
-        by_fam[r["family_used"]]["total"] += 1
+        by_used.setdefault(r["family_used"], {"hit": 0, "total": 0})
+        by_used[r["family_used"]]["total"] += 1
         if r["inside_p10_p90"]:
-            by_fam[r["family_used"]]["hit"] += 1
-    print("By family used:")
-    for fam, c in by_fam.items():
+            by_used[r["family_used"]]["hit"] += 1
+    print("By family USED:")
+    for fam, c in by_used.items():
         print(f"  {fam}: {c['hit']}/{c['total']} ({100*c['hit']/c['total']:.1f}%)")
+
+    # Breakdown by category (shows which continuous stats re-routed to poisson)
+    by_cat = {}
+    for r in records:
+        key = f"{r['family_category']}\u2192{r['family_used']}"
+        by_cat.setdefault(key, {"hit": 0, "total": 0})
+        by_cat[key]["total"] += 1
+        if r["inside_p10_p90"]:
+            by_cat[key]["hit"] += 1
+    print("By category \u2192 family USED:")
+    for key, c in by_cat.items():
+        print(f"  {key}: {c['hit']}/{c['total']} ({100*c['hit']/c['total']:.1f}%)")
 
     by_pos = {}
     for r in records:
