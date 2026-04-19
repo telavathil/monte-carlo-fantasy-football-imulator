@@ -1,0 +1,8 @@
+[2m2026-04-19T01:50:06Z[0m runner[683701dc554dd8] [32miad[0m [[34minfo[0m]Pulling container image registry.fly.io/ffsim-spike-c1@sha256:09f7e8ba178dcc4549cfecf6bf6b338fd03b567587cfbd9adb02aecc5ac26d26
+[2m2026-04-19T01:50:13Z[0m runner[683701dc554dd8] [32miad[0m [[34minfo[0m]Formatting volume
+[2m2026-04-19T01:50:14Z[0m runner[683701dc554dd8] [32miad[0m [[34minfo[0m]Configuring firecracker
+[2m2026-04-19T01:50:14Z[0m app[683701dc554dd8] [32miad[0m [[34minfo[0m]2026-04-19T01:50:14.888606015 [01KPHPWH7G3XXKS11B432Q1PZT:main] Running Firecracker v1.14.2
+[2m2026-04-19T01:50:14Z[0m app[683701dc554dd8] [32miad[0m [[34minfo[0m]2026-04-19T01:50:14.888748432 [01KPHPWH7G3XXKS11B432Q1PZT:main] Listening on API socket ("/fc.sock").
+[2m2026-04-19T01:52:32Z[0m app[683701dc554dd8] [32miad[0m [[34minfo[0m]INFO:     172.16.10.146:51916 - "GET /api/health HTTP/1.1" 200 OK
+[2m2026-04-19T01:52:48Z[0m app[683701dc554dd8] [32miad[0m [[34minfo[0m]INFO:     172.16.10.146:40454 - "POST /api/seed HTTP/1.1" 200 OK
+Warning: Metrics token unavailable: failed to run query($slug: String!) { organization(slug: $slug) { id internalNumericId slug rawSlug name type billable limitedAccessTokens { nodes { id name expiresAt revokedAt user { email } } } } }: context canceled
