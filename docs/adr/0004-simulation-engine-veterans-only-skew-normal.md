@@ -1,6 +1,6 @@
 # ADR-0004: Simulation engine — veterans-only, per-stat skew-normal, no covariance
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0012](0012-mixed-distribution-families-for-stat-simulation.md) for family-choice portion; veterans-only / historical-fit / mean-shift remain in force.
 - **Date:** 2026-04-18
 - **Deciders:** Tobin Elavathil
 
@@ -38,3 +38,4 @@ Requirements v1.2 §4.1 describes a rich simulation model: rookie archetype prof
 - Requirements v1.2, §4.1.1 (veteran fitting), §4.1.2–§4.1.4 (rookie archetypes — deferred), §4.2 (team-level sim — deferred), §10.3 (known limitations).
 - `nflreadpy.load_player_stats()` provides the historical data. See [ADR-0008](0008-use-nflreadpy-not-nfl-data-py.md).
 - Related: [ADR-0010](0010-mvp-supports-qb-rb-wr-te-only.md) — drops K and DEF because skew-normal is a poor fit for their stat shapes.
+- **Superseded for family choice by [ADR-0012](0012-mixed-distribution-families-for-stat-simulation.md)**: Spike A1 verified skew-normal is wrong for count stats (TDs/INTs); the veterans-only, historical-fit, mean-shift mechanics in this ADR remain in force, but the single-family assumption does not.

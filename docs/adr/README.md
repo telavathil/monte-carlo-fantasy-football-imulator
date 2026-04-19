@@ -25,6 +25,9 @@ We use [MADR 3.0](https://adr.github.io/madr/) to record architecturally signifi
 | [0009](0009-canonical-stat-vocabulary-from-nflreadpy.md) | Canonical stat vocabulary = `nflreadpy` column names | Accepted |
 | [0010](0010-mvp-supports-qb-rb-wr-te-only.md) | MVP supports QB/RB/WR/TE only (K/DEF deferred) | Accepted |
 | [0011](0011-gate-implementation-on-pre-implementation-spikes.md) | Gate implementation on pre-implementation spikes | Accepted |
+| [0012](0012-mixed-distribution-families-for-stat-simulation.md) | Mixed distribution families (skew-normal for continuous, negative-binomial for counts) | Accepted — supersedes 0004 family choice |
+| [0013](0013-identity-resolution-team-abbreviation-normalization.md) | Identity resolution team-abbreviation normalization + canonical refresh | Accepted — amends 0005 |
+| [0014](0014-explicit-parquet-persistence-for-historical-data.md) | Explicit Parquet persistence for historical data | Accepted — amends 0006 |
 
 ## Template
 
