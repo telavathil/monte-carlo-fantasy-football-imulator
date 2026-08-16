@@ -55,3 +55,19 @@ def test_unmapped_columns_surfaced():
     })
     mapped, unmapped = map_columns(df, strategy="fantasypros_multi_header")
     assert ("PASSING", "SOMETHING_NEW") in unmapped
+
+
+def test_fpts_deliberately_dropped_not_unmapped():
+    """FPTS is dropped (not unmapped) because we compute our own scoring."""
+    df = pd.DataFrame({
+        ("Unnamed: 0_level_0", "Player"): ["Player X"],
+        ("PASSING", "ATT"): [400],
+        ("MISC", "FPTS"): [25.5],  # This should be dropped, not unmapped
+    })
+    mapped, unmapped = map_columns(df, strategy="fantasypros_multi_header")
+    # FPTS should not appear in mapped columns
+    assert "FPTS" not in mapped.columns
+    # FPTS should not appear in unmapped list (it's deliberately dropped)
+    assert ("MISC", "FPTS") not in unmapped
+    # But the stat column should still be there
+    assert "attempts" in mapped.columns
