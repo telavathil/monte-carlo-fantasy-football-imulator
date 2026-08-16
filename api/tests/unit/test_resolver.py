@@ -50,6 +50,36 @@ def test_tier3_wrong_position_returns_none(session, seeded_players):
     assert result is None
 
 
+def test_tier3_empty_position_matches_uniquely(session, seeded_players):
+    # No position column available (e.g. an ADP source). CeeDee Lamb (WR, DAL)
+    # is the only "ceedee lamb"+"DAL" pairing in canonical, so name+team alone
+    # should resolve it even with position="".
+    result = resolve(
+        session,
+        csv_row={"Player": "CeeDee Lamb DAL"},
+        position="",
+    )
+    assert result == 4
+
+
+def test_tier3_empty_position_ambiguous_returns_none(session, seeded_players):
+    # Add a second "CeeDee Lamb" at the same team but a different position.
+    # With position="" the query can no longer disambiguate by position, so
+    # this should now return None instead of a false match.
+    from app.models.orm import Player
+    from datetime import datetime
+    session.add(Player(mfl_id=7, gsis_id="00-0088888", name="CeeDee Lamb",
+                       merge_name="ceedee lamb", team="DAL", position="TE",
+                       seeded_at=datetime.utcnow().isoformat()))
+    session.commit()
+    result = resolve(
+        session,
+        csv_row={"Player": "CeeDee Lamb DAL"},
+        position="",
+    )
+    assert result is None
+
+
 def test_split_name_with_suffix(session, seeded_players):
     # Add a player with a suffix to test normalization.
     from app.models.orm import Player

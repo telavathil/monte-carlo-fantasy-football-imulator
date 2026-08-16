@@ -30,8 +30,13 @@ def import_adp(session: Session, *, content: bytes, filename: str,
     unresolved = 0
     for _, row in df.iterrows():
         csv_row = {c: row[c] for c in df.columns}
-        # ADP CSVs usually include `position` column; fall back if missing.
-        position = str(csv_row.get("position", "")).upper() or "QB"
+        # ADP CSVs are typically NOT split by position (overall ADP rankings
+        # spanning all positions), so there is usually no `position` column
+        # at all. Pass an empty string through in that case rather than
+        # guessing "QB" — resolve() treats an empty position as "no filter"
+        # and matches on name + team alone (still guarded by the Tier-3
+        # ambiguity check).
+        position = str(csv_row.get("position", "")).strip().upper()
         # resolve()'s Tier-3 match expects a combined "Name TEAM" string in the
         # "Player" field (as produced by FantasyPros HTML tables). ADP CSVs
         # commonly carry name and team as separate columns instead, so

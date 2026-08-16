@@ -49,18 +49,24 @@ def resolve(session: Session, csv_row: dict, position: str) -> int | None:
             if match is not None:
                 return match.mfl_id
 
-    # Tier 3: normalized name + canonicalized team + position
+    # Tier 3: normalized name + canonicalized team (+ position, when known)
     combined = csv_row.get("Player") or csv_row.get("player") or ""
     name, team_raw = split_name_team(combined)
     merge = normalize_name(name)
     team = canonicalize_team(team_raw)
     if not merge or not team:
         return None
-    matches = (session.query(Player)
-               .filter(Player.merge_name == merge,
-                       Player.team == team,
-                       Player.position == position)
-               .all())
+    query = session.query(Player).filter(Player.merge_name == merge,
+                                          Player.team == team)
+    if position:
+        # Position is a known, reliable signal (e.g. stats imports, which are
+        # always fetched per-position) — filter on it exactly as before.
+        query = query.filter(Player.position == position)
+    # else: no position signal available (e.g. ADP imports, which are
+    # typically not split by position). Match on name + team alone; the
+    # ambiguity guard below still protects against false matches when
+    # multiple players share a name and team across positions.
+    matches = query.all()
     if len(matches) == 1:
         return matches[0].mfl_id
     return None

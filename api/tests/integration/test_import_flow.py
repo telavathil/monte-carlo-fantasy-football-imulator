@@ -71,3 +71,20 @@ def test_import_adp_stub(session):
     adp = session.query(PlayerAdp).filter_by(import_batch_id=batch_id).first()
     assert adp is not None
     assert adp.adp_snake == 18.5
+
+
+def test_import_adp_no_position_column_resolves_non_qb(session):
+    # Real-world overall ADP exports are not split by position, so there is
+    # usually no `position` column at all. A non-QB player (e.g. a WR) must
+    # still resolve correctly via name+team alone.
+    _seed_canonical(session)
+    session.add(Player(mfl_id=4, gsis_id="00-0036264", name="CeeDee Lamb",
+                       merge_name="ceedee lamb", team="DAL", position="WR",
+                       seeded_at=datetime.utcnow().isoformat()))
+    session.commit()
+    csv = b"Player,Team,adp_snake,adp_auction\nCeeDee Lamb,DAL,9.5,55\n"
+    batch_id, _ = import_adp(session, content=csv, filename="overall_adp.csv",
+                             source="fantasypros")
+    adp = session.query(PlayerAdp).filter_by(import_batch_id=batch_id, player_id=4).first()
+    assert adp is not None
+    assert adp.adp_snake == 9.5
