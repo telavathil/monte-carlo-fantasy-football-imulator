@@ -14,9 +14,8 @@ HEADERS = {"Authorization": "Bearer dev-token"}
 @pytest.fixture()
 def app_and_db(tmp_path, monkeypatch):
     """Build app with isolated data dir and pre-seeded canonical + league config."""
-    import os
-    os.environ["DATA_DIR"] = str(tmp_path)
-    os.environ["API_TOKEN"] = "dev-token"
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("API_TOKEN", "dev-token")
 
     from app import main
     monkeypatch.setattr(main, "_first_boot", lambda: None)
