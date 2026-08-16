@@ -1,5 +1,8 @@
 import { test, expect } from "@playwright/test";
 import * as path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 test("happy path: settings → import QB → players → detail", async ({ page }) => {
   await page.goto("/");
