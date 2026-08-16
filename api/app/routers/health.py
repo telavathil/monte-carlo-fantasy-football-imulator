@@ -1,19 +1,19 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from app.config import get_settings
 from sqlalchemy import text
-from app.db import SessionLocal
+from sqlalchemy.orm import Session
+from app.db import get_db
 
 router = APIRouter()
 
 
 @router.get("/health")
-def health():
+def health(db: Session = Depends(get_db)):
     settings = get_settings()
     db_ok = False
     try:
-        with SessionLocal() as db:
-            db.execute(text("SELECT 1"))
-            db_ok = True
+        db.execute(text("SELECT 1"))
+        db_ok = True
     except Exception:
         db_ok = False
     seasons = []
