@@ -42,12 +42,15 @@ class Settings(BaseSettings):
         if not isinstance(value, str):
             return value
         try:
-            return json.loads(value)
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
         except (json.JSONDecodeError, ValueError):
-            pieces = [piece.strip() for piece in value.split(",") if piece.strip()]
-            if info.field_name == "historical_seasons":
-                return [int(piece) for piece in pieces]
-            return pieces
+            pass
+        pieces = [piece.strip() for piece in value.split(",") if piece.strip()]
+        if info.field_name == "historical_seasons":
+            return [int(piece) for piece in pieces]
+        return pieces
 
     @property
     def sqlite_url(self) -> str:

@@ -15,6 +15,6 @@ def require_token(authorization: str | None = Header(default=None)) -> None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                             detail="missing bearer token")
     token = authorization.removeprefix("Bearer ").strip()
-    if not secrets.compare_digest(token, expected):
+    if not secrets.compare_digest(token.encode(), expected.encode()):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                             detail="invalid token")

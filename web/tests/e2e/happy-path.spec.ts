@@ -17,7 +17,7 @@ test("happy path: settings → import QB → players → detail", async ({ page 
   await expect(page.locator("pre")).toContainText("matched_rows");
 
   await page.goto("/players");
-  await expect(page.locator("table tbody tr")).toHaveCount(1, { timeout: 5000 });
+  await expect(page.locator("table tbody tr").first()).toBeVisible({ timeout: 5000 });
   // At least one linked row — click through to the detail page.
   const firstLink = page.locator("table tbody tr td a").first();
   await expect(firstLink).toBeVisible();

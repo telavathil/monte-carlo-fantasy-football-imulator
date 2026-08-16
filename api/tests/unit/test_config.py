@@ -64,3 +64,17 @@ def test_historical_seasons_accepts_json_array_string(monkeypatch):
     monkeypatch.setenv("HISTORICAL_SEASONS", "[2022, 2023, 2024]")
     s = Settings(_env_file=None)
     assert s.historical_seasons == [2022, 2023, 2024]
+
+
+def test_historical_seasons_accepts_single_bare_value(monkeypatch):
+    """A single value with no comma is still valid JSON (a bare int), so it
+    must not be treated as already-decoded and passed through unwrapped."""
+    monkeypatch.setenv("HISTORICAL_SEASONS", "2025")
+    s = Settings(_env_file=None)
+    assert s.historical_seasons == [2025]
+
+
+def test_cors_origins_accepts_single_bare_value(monkeypatch):
+    monkeypatch.setenv("CORS_ORIGINS", "https://a.com")
+    s = Settings(_env_file=None)
+    assert s.cors_origins == ["https://a.com"]
