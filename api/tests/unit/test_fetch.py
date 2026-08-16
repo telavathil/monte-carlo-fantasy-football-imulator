@@ -2,8 +2,9 @@ import pathlib
 import shutil
 import pytest
 import polars as pl
+import pandas as pd
 from unittest.mock import patch
-from app.historical.fetch import ensure_seasons, game_logs, seed_players
+from app.historical.fetch import ensure_seasons, game_logs, seed_players, _dedupe_by_gsis_id
 from app.models.orm import Player
 
 
@@ -54,3 +55,37 @@ def test_seed_players_filters_gsis_not_null(session, mock_nflreadpy):
     assert len(rows) == count
     assert all(r.gsis_id for r in rows)
     assert len(rows) > 5000  # cassette has ~7700 rows
+
+
+def test_dedupe_by_gsis_id_prefers_real_team_over_free_agent():
+    # Two distinct mfl_id rows incorrectly crosswalked to the same gsis_id —
+    # this happens in the real ff_playerids data (see fetch.py docstring).
+    # A row with a real team should always beat a "FA" (free agent /
+    # inactive placeholder) row, regardless of source order.
+    df = pd.DataFrame([
+        {"mfl_id": 1, "gsis_id": "00-0099999", "name": "Real Team Guy",
+         "team": "KCC", "db_season": 2026, "draft_year": 2010},
+        {"mfl_id": 2, "gsis_id": "00-0099999", "name": "Free Agent Guy",
+         "team": "FA", "db_season": 2026, "draft_year": 2015},
+    ])
+    result = _dedupe_by_gsis_id(df)
+    assert len(result) == 1
+    assert result.iloc[0]["mfl_id"] == 1
+    assert result.iloc[0]["name"] == "Real Team Guy"
+
+
+def test_dedupe_by_gsis_id_breaks_remaining_ties_by_mfl_id(caplog):
+    # Two real-team rows, same db_season and draft_year (both criteria
+    # exhausted without resolving the tie) — falls back to lower mfl_id,
+    # deterministically, and logs the drop.
+    df = pd.DataFrame([
+        {"mfl_id": 200, "gsis_id": "00-0088888", "name": "Higher Mfl Id",
+         "team": "SEA", "db_season": 2026, "draft_year": 2014},
+        {"mfl_id": 100, "gsis_id": "00-0088888", "name": "Lower Mfl Id",
+         "team": "KCC", "db_season": 2026, "draft_year": 2014},
+    ])
+    with caplog.at_level("WARNING"):
+        result = _dedupe_by_gsis_id(df)
+    assert len(result) == 1
+    assert result.iloc[0]["mfl_id"] == 100
+    assert "dropping duplicate gsis_id=00-0088888 mfl_id=200" in caplog.text
