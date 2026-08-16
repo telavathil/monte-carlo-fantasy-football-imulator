@@ -3,7 +3,8 @@
 **Status:** Approved for implementation planning
 **Date:** 2026-04-18
 **Scope:** Phase 1 MVP (per Requirements v1.2, §9 Phase 1, narrowed)
-**Related ADRs:** [0001](../../adr/0001-record-architecture-decisions.md) through [0010](../../adr/0010-mvp-supports-qb-rb-wr-te-only.md)
+**Related ADRs:** [0001](../../adr/0001-record-architecture-decisions.md) through [0015](../../adr/0015-calibration-refinements-poisson-fallback-and-scale-inflation.md).
+**Post-spike revisions:** [ADR-0012](../../adr/0012-mixed-distribution-families-for-stat-simulation.md) supersedes [0004](../../adr/0004-simulation-engine-veterans-only-skew-normal.md) for family choice (A1 finding); [ADR-0013](../../adr/0013-identity-resolution-team-abbreviation-normalization.md) amends [0005](../../adr/0005-identity-resolution-tiers-1-and-3-only.md) (B1 finding); [ADR-0014](../../adr/0014-explicit-parquet-persistence-for-historical-data.md) amends [0006](../../adr/0006-sqlite-on-fly-volume-with-nflreadpy-cache.md) (C1 finding); [ADR-0015](../../adr/0015-calibration-refinements-poisson-fallback-and-scale-inflation.md) amends [0012](../../adr/0012-mixed-distribution-families-for-stat-simulation.md) with Poisson fallback + scale inflation (A2 v3 finding). See [`spikes/GATING.md`](../../../spikes/GATING.md) for the spike evidence.
 
 ---
 
@@ -24,7 +25,7 @@ A deployed-from-day-one web application that lets a single user (the author) imp
 - No team-level, season-level, or weekly matchup simulation. Happy path stops at per-player distribution.
 - No rookie archetype system. Players with `<4` career regular-season games return `422 insufficient_history` and are excluded from distribution views.
 - No opponent / strength-of-schedule adjustments.
-- No intra-player stat covariance matrix. Each stat sampled independently. See [ADR-0004](../../adr/0004-simulation-engine-veterans-only-skew-normal.md).
+- No intra-player stat covariance matrix. Each stat sampled independently. See [ADR-0004](../../adr/0004-simulation-engine-veterans-only-skew-normal.md) (as amended by [ADR-0012](../../adr/0012-mixed-distribution-families-for-stat-simulation.md) for distribution families: skew-normal for continuous yard stats, negative-binomial for count stats).
 - No point-level fallback CSV import path. Stat-level only; point-only CSVs error.
 - No scoring rule editor UI. Three presets (`standard`, `half_ppr`, `full_ppr`) selectable by name; no per-rule configuration. See [ADR-0003](../../adr/0003-scope-mvp-to-player-explorer.md).
 - No Kicker or Defense simulation. K and DEF projections can still be imported (for later phases) but have no distribution endpoint in MVP. See [ADR-0010](../../adr/0010-mvp-supports-qb-rb-wr-te-only.md).
@@ -98,11 +99,9 @@ monte-carlo-fantasy-football-imulator/
 
 On API startup, `app/main.py`:
 1. Runs SQLite migrations.
-2. Calls `historical.fetch.ensure_seed()` which:
-   a. Configures `NFLREADPY_CACHE_DIR=/data/historical`.
-   b. If the `player` table is empty: calls `nflreadpy.load_ff_playerids()`, filters to rows with `gsis_id IS NOT NULL`, upserts into `player`.
-   c. If cached Parquet for any of the last 3 seasons is missing: calls `nflreadpy.load_player_stats(seasons=[Y-2, Y-1, Y])` to populate cache.
-3. Marks server ready. Subsequent boots skip steps 2b and 2c if state is present.
+2. If the `player` table is empty: calls `nflreadpy.load_ff_playerids()`, filters to rows with `gsis_id IS NOT NULL`, upserts into `player`.
+3. Calls `historical.fetch.ensure_seasons([Y-2, Y-1, Y])` which, for each season where `/data/historical/player_stats_{y}.parquet` is missing, fetches via `nflreadpy.load_player_stats(seasons=[y])` and explicitly writes the Parquet to the volume (per [ADR-0014](../../adr/0014-explicit-parquet-persistence-for-historical-data.md) — nflreadpy's own cache is in-process only).
+4. Marks server ready. Subsequent boots skip steps 2–3 if state is present.
 
 First boot: ~30–90 seconds. Subsequent boots: sub-second.
 
@@ -226,7 +225,9 @@ CREATE TABLE league_config (
 
 CREATE TABLE player_distribution_params (
   player_id INTEGER PRIMARY KEY REFERENCES player(mfl_id),
-  params TEXT NOT NULL,               -- JSON: {"passing_yards":{"alpha":..,"loc":..,"scale":..}, ...}
+  params TEXT NOT NULL,               -- JSON: {"passing_yards":{"family":"skewnorm","alpha":..,"loc":..,"scale":..},
+                                      --        "passing_tds":{"family":"nbinom","n":..,"p":..}, ...}
+                                      -- See ADR-0012 for family mapping per stat.
   fitted_at TEXT NOT NULL,
   historical_seasons TEXT NOT NULL,   -- e.g. "2023,2024,2025"
   games_used INTEGER NOT NULL
@@ -259,10 +260,11 @@ Each backend module has a single responsibility and a narrow public interface. A
 
 ### `identity/`
 
+- **`team_codes.py`** — (new per [ADR-0013](../../adr/0013-identity-resolution-team-abbreviation-normalization.md)) — `TEAM_CODE_ALIASES` dict (`KC→KCC`, `TB→TBB`, `SF→SFO`, `GB→GBP`, `NE→NEP`, `NO→NOS`, `LV→LVR`, `JAX→JAC`, `LA→LAR`) + `canonicalize_team(code)` helper. Applied to every parsed CSV team string before Tier 3 lookup.
 - **`resolver.py`** — `resolve(csv_row, position) → mfl_id | None`.
-  - **Tier 1**: for each known ID column in the CSV (`fantasypros_id`, `espn_id`, `yahoo_id`, `sleeper_id`, `cbs_id`, `pfr_id`, `fantasy_data_id`, `rotowire_id`, `nfl_id`), query `player` on the matching indexed column. First hit wins.
-  - **Tier 3**: lowercase + strip punctuation on the parsed name → query `player` on `(merge_name, team, position)`. Zero hits → `None`. One hit → return. Multiple hits → `None` (ambiguous; unresolved).
-  - No normalizer module — `merge_name` is pre-normalized at source. Our only code is the same transform applied to the incoming CSV row.
+  - **Tier 1**: for each known ID column in the CSV (`fantasypros_id`, `espn_id`, `yahoo_id`, `sleeper_id`, `cbs_id`, `pfr_id`, `fantasy_data_id`, `rotowire_id`, `nfl_id`), query `player` on the matching indexed column. First hit wins. **Note:** default FantasyPros exports don't include any ID column ([Spike B1](../../../spikes/b1-id-resolution/report.md)); Tier 1 is active only when the user hand-augments or the CSV comes from a source that publishes IDs.
+  - **Tier 3**: lowercase + strip punctuation on the parsed name → canonicalize team via `team_codes.canonicalize_team` → query `player` on `(merge_name, team, position)`. Zero hits → `None`. One hit → return. Multiple hits → `None` (ambiguous; unresolved).
+  - No general normalizer module for names — `merge_name` is pre-normalized at source. Our code applies the same transform to CSV rows + the team-code alias lookup.
 
 ### `scoring/`
 
@@ -271,15 +273,20 @@ Each backend module has a single responsibility and a narrow public interface. A
 
 ### `historical/`
 
-- **`fetch.py`** — thin wrapper. `ensure_seed()` runs at first boot (see §2). `game_logs(gsis_id, seasons)` reads from nflreadpy's cache, filters to `season_type == "REG"` and to rows where the player had activity (`(attempts + carries + targets) > 0` for skill positions). Returns a DataFrame for `sim.fitting` to consume.
+- **`fetch.py`** — thin wrapper per [ADR-0014](../../adr/0014-explicit-parquet-persistence-for-historical-data.md). `ensure_seasons(years)` checks `/data/historical/player_stats_{y}.parquet` per requested year; if missing, calls `nflreadpy.load_player_stats(seasons=[y])` and writes the Parquet ourselves (nflreadpy's cache is in-process only; Spike C1 verified `NFLREADPY_CACHE_DIR` does not persist). `game_logs(gsis_id, years)` reads the Parquet files, filters to `season_type == "REG"` and to rows where the player had activity (`(attempts + carries + targets) > 0` for skill positions). Returns a Polars DataFrame for `sim.fitting` to consume.
 
 ### `sim/`
 
-- **`fitting.py`** — `fit_player(player_id, projection, historical_games) → params`:
+- **`families.py`** — (new per [ADR-0012](../../adr/0012-mixed-distribution-families-for-stat-simulation.md)) — `STAT_FAMILY` dict mapping each canonical stat name to `"skewnorm"` (continuous yard/reception stats) or `"nbinom"` (count stats: passing_tds, passing_interceptions, rushing_tds, receiving_tds, rushing_fumbles_lost). Single source of truth for family choice.
+- **`fitting.py`** — `fit_player(player_id, projection, historical_games) → params`. Dispatch rules per [ADR-0012](../../adr/0012-mixed-distribution-families-for-stat-simulation.md) as refined by [ADR-0015](../../adr/0015-calibration-refinements-poisson-fallback-and-scale-inflation.md):
   1. If `len(historical_games) < 4`: raise `InsufficientHistoryError`.
-  2. For each stat in the projection that's also scoreable in the active preset: weight game-log rows by recency (hard-coded `[0.50, 0.30, 0.20]` for seasons Y, Y-1, Y-2), fit a `scipy.stats.skewnorm` with weighted moments, shift the fitted distribution so its mean equals the projected stat value, store `{alpha, loc, scale}` in the params dict.
+  2. For each stat in the projection that's also scoreable in the active preset: recency-weight the game-log rows (`[0.50, 0.30, 0.20]` for seasons Y, Y-1, Y-2). Dispatch:
+     - **Category `skewnorm` + `mean(train) < 1.5`** (sparse continuous, e.g. WR rushing yards) → **Poisson** with `λ = max(target_mean, 0.1)`. Store `{"family":"poisson", "lam":…}`.
+     - **Category `skewnorm` + `mean(train) ≥ 1.5`** → fit `scipy.stats.skewnorm.fit`, **multiply `scale` by 1.10** (scale inflation), then mean-shift `loc` so the fitted mean equals the projected stat. Store `{"family":"skewnorm", "alpha":…, "loc":…, "scale":…}`.
+     - **Category `nbinom` + `mean(train) ≤ 0.2`** OR MoM produces invalid params (non-finite or under-dispersed) → **Poisson** with `λ = max(target_mean, 0.1)`. Store `{"family":"poisson", "lam":…}`.
+     - **Category `nbinom` otherwise** → MoM fit (`n = μ²/(σ²−μ)`, `p = μ/σ²`), mean-shift by scaling `n` while holding dispersion (`σ²/μ`) constant. Store `{"family":"nbinom", "n":…, "p":…}`.
   3. Upsert into `player_distribution_params`.
-- **`sampler.py`** — `sample(params, n=5000, seed=None) → dict[stat, ndarray]`. Calls `skewnorm.rvs` per stat, independently (no covariance — [ADR-0004](../../adr/0004-simulation-engine-veterans-only-skew-normal.md)). Clamps to `≥ 0`.
+- **`sampler.py`** — `sample(params, n=5000, seed=None) → dict[stat, ndarray]`. For each stat in `params`: dispatch on `family` → `skewnorm.rvs` (clamped to `≥0`), `nbinom.rvs`, or `poisson.rvs` (both already non-negative integers). Samples independently per stat (no covariance — [ADR-0004](../../adr/0004-simulation-engine-veterans-only-skew-normal.md) unchanged on this point).
 - **`runner.py`** — `simulate_player(player_id, n) → SimResult`. Loads or computes fit, samples, calls `scoring.engine.score` on each of the `n` stat lines, returns percentiles (p10, p50, p90), mean, std, and histogram bins.
 
 ### `routers/`
@@ -293,7 +300,7 @@ Four pages, no router complexity, minimal styling.
 - **`SettingsPage.tsx`** (`/`) — read + write `/api/league/config`.
 - **`ImportPage.tsx`** (`/import`) — file upload + paste-HTML textarea + source dropdown. POST to `/api/imports/stats` or `/api/imports/adp`. Inline list of unresolved rows with a player-picker dropdown populated by `/api/players`.
 - **`PlayersPage.tsx`** (`/players`) — GET `/api/players`, display as a sortable table (column click → re-sort client-side; no server pagination).
-- **`PlayerDetailPage.tsx`** (`/players/:id`) — projected stat line with per-stat point contribution, plus a Recharts `BarChart` of histogram bins from `/api/players/{id}/distribution`.
+- **`PlayerDetailPage.tsx`** (`/players/:id`) — projected stat line with per-stat point contribution, plus a Recharts `BarChart` of histogram bins from `/api/players/{id}/distribution`. **Must display a calibration caveat** (per [ADR-0015](../../adr/0015-calibration-refinements-poisson-fallback-and-scale-inflation.md)): *"Distributions reflect the uncertainty around the imported projection. Calibration to actual season outcomes is approximate (~65-70% at the 80% interval in backtest; expected to improve with real preseason projections). Treat intervals as informed bounds, not guarantees."*
 
 `web/src/api/client.ts` is generated from `shared/openapi.json`. A `make regen-client` target runs the generator.
 
@@ -306,14 +313,15 @@ Four pages, no router complexity, minimal styling.
 ```
 API process starts
   → db.migrate()
-  → historical.fetch.ensure_seed()
-      → set NFLREADPY_CACHE_DIR=/data/historical
-      → if player table empty:
-          nflreadpy.load_ff_playerids()
-            → filter gsis_id IS NOT NULL
-            → upsert into `player`
-      → for y in [Y-2, Y-1, Y]:
-          if cache miss: nflreadpy.load_player_stats([y])
+  → if player table empty:
+      nflreadpy.load_ff_playerids()
+        → filter gsis_id IS NOT NULL
+        → upsert into `player`
+  → historical.fetch.ensure_seasons([Y-2, Y-1, Y])
+      → for y in years:
+          if /data/historical/player_stats_{y}.parquet missing:
+            df = nflreadpy.load_player_stats([y])
+            df.write_parquet(/data/historical/player_stats_{y}.parquet)
   → server ready
 ```
 
@@ -422,6 +430,12 @@ All routes under `/api`, Bearer auth required except `/api/health`. OpenAPI emit
 | `GET` | `/api/historical/status` | — | `{ seasons, last_refreshed_at, ready }` |
 | `POST` | `/api/historical/refresh` | `{ seasons?: [int] }` | `{ job_status }` — synchronous |
 
+### Admin (per [ADR-0013](../../adr/0013-identity-resolution-team-abbreviation-normalization.md))
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| `POST` | `/api/admin/refresh-players` | — | `{ players_added, players_updated, unresolved_promoted }` — synchronous. Re-runs `nflreadpy.load_ff_playerids()`, upserts the `player` table, and re-runs the resolver on any `import_unresolved` rows that may now match. Run before draft prep to pick up current-season roster moves. |
+
 ### Payload shapes
 
 ```jsonc
@@ -506,12 +520,15 @@ Target: 80% coverage across unit + integration, one end-to-end happy-path test.
 |---|---|
 | `scoring/engine.py` | Table-driven: all three presets against known stat lines → known point totals. Bonus thresholds (300+ pass yds, 100+ rush yds) trigger at boundary. |
 | `scoring/presets.py` | Structural: required keys present, multipliers the expected sign. |
-| `identity/resolver.py` | Tier 1 on each ID column type (int/str). Tier 3 on `merge_name + team + position`. Ambiguous → `None`. Missing → `None`. Uses a hand-built ~10-row `player` fixture covering duplicates and retirees. |
+| `identity/team_codes.py` | All 9 alias entries map to correct canonical. `canonicalize_team("KC")` returns `"KCC"`; unmapped codes pass through unchanged. |
+| `identity/resolver.py` | Tier 1 on each ID column type (int/str). Tier 3 on `merge_name + canonicalize_team(team) + position`. Ambiguous → `None`. Missing → `None`. Team-alias normalization kicks in for 2-letter codes. Uses a hand-built ~10-row `player` fixture covering duplicates, retirees, and a 2-letter→3-letter team match. |
 | `import_pipeline/csv_parser.py` | Fixture-driven: FantasyPros HTML (committed fixture) flattens MultiIndex and splits name/team. Clean CSV passes through. |
 | `import_pipeline/column_mapper.py` | Each of three strategies. Unmapped columns surfaced. |
-| `sim/fitting.py` | Synthetic-ground-truth: seeded NumPy RNG produces samples from a known skew-normal → fit recovers params within tolerance → mean-shift lands on projection. `InsufficientHistoryError` at `<4` games. |
-| `sim/sampler.py` | Seeded determinism. Array shapes. Non-negative clamp. |
+| `sim/families.py` | Every stat name in `STAT_FAMILY` is either `"skewnorm"` or `"nbinom"`. All scoreable stats across all presets are registered. |
+| `sim/fitting.py` | Synthetic-ground-truth, **per family**: (a) skew-normal — seeded RNG produces samples from known skewnorm → fit recovers params within tolerance → mean-shift lands on projection; (b) nbinom — seeded RNG produces counts from known (n, p) → method-of-moments recovers params within tolerance → dispersion-preserving mean-shift lands on target mean. `InsufficientHistoryError` at `<4` games. |
+| `sim/sampler.py` | Seeded determinism. Array shapes. skewnorm samples are clamped ≥0; nbinom samples are already non-negative integers (no clamp). Mixed-family params produce correctly-shaped per-stat arrays. |
 | `sim/runner.py` | Percentile ordering (p10 ≤ p50 ≤ p90). Histogram bins sum to N. |
+| `historical/fetch.py` | `ensure_seasons` writes Parquet at expected paths; re-calls are idempotent (no re-download if file exists). `game_logs` filters to `REG` and to active-week rows. |
 
 ### Integration (`api/tests/integration/`, FastAPI TestClient + in-memory SQLite, transactional fixtures)
 
@@ -524,6 +541,7 @@ Target: 80% coverage across unit + integration, one end-to-end happy-path test.
 | `test_k_def_not_supported` | K/DEF distribution request → `422 not_supported_mvp`. |
 | `test_auth` | Missing/wrong token → `401`. `/health` accessible. |
 | `test_historical_refresh` | `POST /historical/refresh` truncates `player_distribution_params`; next request re-fits. |
+| `test_admin_refresh_players` | `POST /admin/refresh-players` upserts `player` rows; previously-unresolved import rows are re-run and promote to `player_projection` when a match now exists. |
 
 **`nflreadpy` mocking**: commit cassettes (`tests/fixtures/nflreadpy/ff_playerids.parquet`, `player_stats_2024.parquet`, ...) generated by `make refresh-cassettes` (hits network). Pytest fixture monkeypatches `nflreadpy.load_*` to read these.
 
@@ -570,11 +588,11 @@ GitHub Actions, two parallel jobs (`api-test`, `web-test`). No network access. B
 
 | # | Risk | Mitigation |
 |---|---|---|
-| R1 | `nflreadpy` is experimental; schema or support may change. | `historical/fetch.py` is a thin wrapper; ~100-line swap to read nflverse Parquet releases directly if needed. |
+| R1 | `nflreadpy` is experimental; schema or support may change. Its filesystem cache does not persist via `NFLREADPY_CACHE_DIR` alone (verified by Spike C1). | `historical/fetch.py` writes Parquet explicitly ([ADR-0014](../../adr/0014-explicit-parquet-persistence-for-historical-data.md)) — already independent of nflreadpy cache internals. If the library itself changes schema, pin is `==0.1.5`; bump deliberately and re-seed. |
 | R2 | Fly `shared-cpu-1x` default 256 MB RAM may be tight with 3 seasons × 19k rows × 114 cols in memory simultaneously. | Provision at 512 MB; profile during development; stream per-position if necessary. |
 | R3 | Fly free tier is `$5/month credit` rather than fully free; small costs may accrue. | Estimate <$5/mo at MVP scale; `fly scale count 0` when not in use. |
 | R4 | FantasyPros HTML structure may change. | One parser file + committed fixture; regression test catches breakage. |
-| R5 | No intra-player stat covariance → a QB's 4-TD game is sampled as 4 TDs but independently in yards. | Accepted limitation; multivariate upgrade is contained in `sim/fitting.py`. |
+| R5 | No intra-player stat covariance → a QB's 4-TD game is sampled as 4 TDs but independently in yards. Additionally, weekly-IID sampling undersells season-total variance because weeks aren't really independent (slumps, game-state, ramp-ups correlate within a season). Spike A2 v3 backtest coverage at the 80% interval is 65.9% vs 80% target. | Accepted limitation; partially mitigated by ADR-0015's 1.10× scale inflation. Multivariate upgrade and/or cross-week correlation modeling are contained to `sim/fitting.py` and are Phase-2 work. Phase-2 calibration retrospective with real preseason projections will re-measure. |
 | R6 | `ff_playerids` `db_season=2025` — 2026 rookies absent until source updates. | Manual refresh endpoint; user re-seeds before draft prep. |
 
 ### Known limitations carried into MVP (from Requirements v1.2 §10.3)
@@ -703,4 +721,9 @@ All decisions in this spec link to MADR 3.0 records under `docs/adr/`. See [`doc
 | [0008](../../adr/0008-use-nflreadpy-not-nfl-data-py.md) | Use `nflreadpy`, not the deprecated `nfl_data_py` |
 | [0009](../../adr/0009-canonical-stat-vocabulary-from-nflreadpy.md) | Canonical stat vocabulary = `nflreadpy` column names |
 | [0010](../../adr/0010-mvp-supports-qb-rb-wr-te-only.md) | MVP supports QB/RB/WR/TE only (K/DEF deferred) |
+| [0011](../../adr/0011-gate-implementation-on-pre-implementation-spikes.md) | Gate implementation on pre-implementation spikes |
+| [0012](../../adr/0012-mixed-distribution-families-for-stat-simulation.md) | Mixed distribution families — skew-normal for continuous, negative-binomial for counts (supersedes 0004 family choice) |
+| [0013](../../adr/0013-identity-resolution-team-abbreviation-normalization.md) | Team-abbreviation normalization + canonical-refresh endpoint (amends 0005) |
+| [0014](../../adr/0014-explicit-parquet-persistence-for-historical-data.md) | Explicit Parquet persistence; nflreadpy cache is in-process (amends 0006) |
+| [0015](../../adr/0015-calibration-refinements-poisson-fallback-and-scale-inflation.md) | Calibration refinements: Poisson fallback + skewnorm scale inflation (amends 0012) |
 | [0011](../../adr/0011-gate-implementation-on-pre-implementation-spikes.md) | Gate implementation on pre-implementation spikes |

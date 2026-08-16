@@ -1,6 +1,6 @@
 # ADR-0005: Identity resolution — Tiers 1 and 3 only
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by [ADR-0013](0013-identity-resolution-team-abbreviation-normalization.md) (adds team-abbreviation normalization + canonical-refresh endpoint)
 - **Date:** 2026-04-18
 - **Deciders:** Tobin Elavathil
 

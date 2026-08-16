@@ -1,6 +1,6 @@
 # ADR-0006: Storage — SQLite on Fly volume, nflreadpy filesystem cache
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by [ADR-0014](0014-explicit-parquet-persistence-for-historical-data.md) (historical Parquet persistence is explicit in our wrapper, not delegated to nflreadpy)
 - **Date:** 2026-04-18
 - **Deciders:** Tobin Elavathil
 
