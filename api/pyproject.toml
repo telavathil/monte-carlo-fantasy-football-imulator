@@ -19,6 +19,7 @@ dependencies = [
     "beautifulsoup4==4.12.3",
     "nflreadpy==0.1.5",
     "python-multipart==0.0.20",
+    "requests==2.34.2",
 ]
 
 [project.optional-dependencies]
