@@ -38,6 +38,37 @@ def _latest_adp(db: Session, player_id: int) -> PlayerAdp | None:
               .first())
 
 
+def _latest_by_player(db: Session, model) -> dict[int, object]:
+    """Batch-fetch the latest row per player_id for `model` (PlayerProjection
+    or PlayerAdp) in ~1 query instead of one correlated subquery per player.
+
+    Replaces an O(N) per-player query loop (up to ~15,800 queries over the
+    full ~7,900-player registry) with two queries total across both models.
+    """
+    latest_created = (
+        db.query(model.player_id.label("player_id"),
+                 func.max(model.created_at).label("max_created_at"))
+          .group_by(model.player_id)
+          .subquery()
+    )
+    candidates = (
+        db.query(model)
+          .join(latest_created,
+                (model.player_id == latest_created.c.player_id)
+                & (model.created_at == latest_created.c.max_created_at))
+          .all()
+    )
+    result: dict[int, object] = {}
+    for row in candidates:
+        # Ties on (player_id, max created_at) — e.g. rows from the same
+        # import batch — are broken by highest id (most recently inserted),
+        # mirroring the previous per-row `.order_by(desc(created_at)).first()`.
+        existing = result.get(row.player_id)
+        if existing is None or row.id > existing.id:
+            result[row.player_id] = row
+    return result
+
+
 @router.get("", response_model=list[PlayerRow])
 def list_players(position: str | None = None, has_projection: bool = False,
                  db: Session = Depends(get_db)):
@@ -45,17 +76,19 @@ def list_players(position: str | None = None, has_projection: bool = False,
     if cfg is None:
         raise HTTPException(status_code=404, detail="config not initialized")
     preset = PRESETS[cfg.scoring_preset]
+    proj_by_player = _latest_by_player(db, PlayerProjection)
+    adp_by_player = _latest_by_player(db, PlayerAdp)
     q = db.query(Player)
     if position:
         q = q.filter(Player.position == position.upper())
     rows: list[PlayerRow] = []
     for p in q.all():
-        proj = _latest_projection(db, p.mfl_id)
+        proj = proj_by_player.get(p.mfl_id)
         if has_projection and proj is None:
             continue
         stats = json.loads(proj.stats) if proj else {}
         computed = score(stats, preset) if stats else None
-        adp = _latest_adp(db, p.mfl_id)
+        adp = adp_by_player.get(p.mfl_id)
         rows.append(PlayerRow(
             player_id=p.mfl_id, gsis_id=p.gsis_id, name=p.name,
             team=p.team, position=p.position,
