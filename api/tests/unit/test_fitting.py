@@ -43,6 +43,19 @@ def test_nbinom_normal_path_returns_nbinom():
     assert params[0] == "nbinom"
 
 
+def test_empty_values_routes_to_poisson_not_fabricated_nbinom():
+    # An empty values array must not silently fall through the NaN-comparison
+    # gap in the mu <= 0.2 / var <= mu guard and produce a fabricated nbinom
+    # fit derived entirely from target_mean. It must route to Poisson instead.
+    params = fit_shift_count(np.array([]), target_mean=5.0)
+    assert params[0] == "poisson"
+    assert params[1] == pytest.approx(5.0, abs=0.01)
+
+    dispatch_params = dispatch_fit(np.array([]), target_mean=5.0,
+                                   family_category="nbinom")
+    assert dispatch_params[0] == "poisson"
+
+
 def test_skewnorm_scale_inflation_applied():
     rng = np.random.default_rng(3)
     from scipy import stats

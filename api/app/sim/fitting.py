@@ -29,7 +29,11 @@ def fit_shift_poisson(target_mean: float) -> PoissonParams:
 
 def fit_shift_count(values: np.ndarray, target_mean: float) -> NbinomParams | PoissonParams:
     """nbinom method-of-moments with Poisson fallback."""
+    if len(values) == 0:
+        return fit_shift_poisson(target_mean)
     mu = float(values.mean())
+    if not math.isfinite(mu):
+        return fit_shift_poisson(target_mean)
     var = float(values.var(ddof=1)) if len(values) > 1 else max(mu, 1e-6)
     if mu <= 0.2 or var <= mu:
         return fit_shift_poisson(target_mean)
