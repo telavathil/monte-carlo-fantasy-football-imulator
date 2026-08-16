@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
-from app.db import Base, _engine, SessionLocal
+from app.db import SessionLocal
 from app.historical.fetch import ensure_seasons, seed_players
 from app.models.orm import Player, LeagueConfig
 
@@ -15,10 +15,17 @@ log = logging.getLogger("uvicorn.error")
 
 
 def _first_boot():
-    """Apply migrations and seed if empty."""
+    """Seed the DB if empty.
+
+    Schema creation/migration is Alembic's job alone (run via the Dockerfile's
+    CMD: `alembic upgrade head && uvicorn ...`), so it's the single source of
+    schema truth with proper alembic_version tracking. This function no
+    longer calls Base.metadata.create_all — doing so against a DATA_DIR that
+    diverges from alembic.ini's configured URL could previously create tables
+    in a database alembic never touches, silently skipping migration tracking.
+    """
     settings = get_settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    Base.metadata.create_all(_engine)  # idempotent; alembic handles real migrations in Docker CMD
 
     with SessionLocal() as db:
         if db.query(Player).count() == 0:
