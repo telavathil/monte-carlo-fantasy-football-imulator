@@ -21,6 +21,9 @@ export function PlayersPage() {
   }, []);
 
   if (err) return <pre>{err}</pre>;
+  const sortedRows = [...rows].sort(
+    (a, b) => (b.projected_points ?? 0) - (a.projected_points ?? 0)
+  );
   return (
     <div>
       <h1>Players</h1>
@@ -31,8 +34,7 @@ export function PlayersPage() {
           </tr>
         </thead>
         <tbody>
-          {rows.sort((a, b) => (b.projected_points ?? 0) - (a.projected_points ?? 0))
-               .map((r) => (
+          {sortedRows.map((r) => (
             <tr key={r.player_id}>
               <td><Link to={`/players/${r.player_id}`}>{r.name}</Link></td>
               <td>{r.position}</td>
