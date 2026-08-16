@@ -5,6 +5,7 @@ from app.import_pipeline.stats_importer import import_stats
 from app.import_pipeline.adp_importer import import_adp
 from app.models.orm import (
     Player, PlayerProjection, PlayerAdp, ImportBatch, ImportUnresolved,
+    PlayerDistributionParams,
 )
 
 
@@ -71,6 +72,64 @@ def test_import_adp_stub(session):
     adp = session.query(PlayerAdp).filter_by(import_batch_id=batch_id).first()
     assert adp is not None
     assert adp.adp_snake == 18.5
+
+
+def test_reimport_stats_invalidates_cached_distribution_params(session):
+    """Regression for: cached PlayerDistributionParams rows were never
+    invalidated when a player's projection changed via a new stats import,
+    so /distribution kept serving a distribution fit to a stale projection."""
+    _seed_canonical(session)
+    content = (FIXTURES / "fantasypros_qb.html").read_bytes()
+    import_stats(session, content=content, filename="fantasypros_qb.html",
+                 source="fantasypros", position="QB")
+
+    # Simulate a prior fit having been cached for Mahomes (mfl_id=1). Fitting
+    # for real requires historical game logs not available to this test's
+    # fixtures, so insert the cached row directly.
+    session.add(PlayerDistributionParams(
+        player_id=1,
+        params=json.dumps({"passing_yards": [1.0, 2.0]}),
+        fitted_at=datetime.utcnow().isoformat(),
+        historical_seasons="2023,2024,2025",
+        games_used=16,
+    ))
+    session.commit()
+    assert session.get(PlayerDistributionParams, 1) is not None
+
+    # Re-import an updated projection for the same player.
+    import_stats(session, content=content, filename="fantasypros_qb.html",
+                 source="fantasypros", position="QB")
+
+    assert session.get(PlayerDistributionParams, 1) is None
+
+
+def test_import_adp_malformed_row_does_not_lose_whole_batch(session):
+    """Regression for: one bad row previously raised uncaught, losing the
+    entire batch's work (including successfully-processed rows before it)
+    since the exception propagated before session.commit()."""
+    _seed_canonical(session)
+    csv = (
+        b"Player,Team,adp_snake,adp_auction\n"
+        b"Patrick Mahomes,KC,18.5,32\n"
+        b"Josh Allen,BUF,not-a-number,10\n"  # malformed: non-numeric ADP value
+    )
+    batch_id, summary = import_adp(session, content=csv, filename="fp_adp.csv",
+                                   source="fantasypros")
+
+    batch = session.get(ImportBatch, batch_id)
+    assert batch is not None  # batch persisted; did not 500 before commit
+    assert batch.matched_rows == 1
+    assert batch.unresolved_rows == 1
+    assert batch.status == "partial"
+
+    adp_rows = session.query(PlayerAdp).filter_by(import_batch_id=batch_id).all()
+    assert len(adp_rows) == 1
+    assert adp_rows[0].player_id == 1
+    assert adp_rows[0].adp_snake == 18.5
+
+    unresolved = session.query(ImportUnresolved).filter_by(import_batch_id=batch_id).all()
+    assert len(unresolved) == 1
+    assert "error" in (unresolved[0].resolution or "")
 
 
 def test_import_adp_no_position_column_resolves_non_qb(session):

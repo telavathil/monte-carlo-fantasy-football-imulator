@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 from app.import_pipeline.csv_parser import parse_file
 from app.import_pipeline.column_mapper import map_columns
 from app.identity.resolver import resolve
-from app.models.orm import ImportBatch, PlayerProjection, ImportUnresolved
+from app.models.orm import (
+    ImportBatch, PlayerProjection, ImportUnresolved, PlayerDistributionParams,
+)
 
 
 def import_stats(session: Session, *, content: bytes, filename: str,
@@ -33,31 +35,52 @@ def import_stats(session: Session, *, content: bytes, filename: str,
 
     matched = 0
     unresolved = 0
+    matched_player_ids: set[int] = set()
     for _, row in mapped_df.iterrows():
         csv_row = {c: row[c] for c in mapped_df.columns}
-        mfl_id = resolve(session, csv_row=csv_row, position=position)
-        if mfl_id is not None:
-            stats = {k: float(v) for k, v in csv_row.items()
-                     if k != "Player" and k != "player" and isinstance(v, (int, float)) and v == v}
-            session.add(PlayerProjection(
-                player_id=mfl_id, import_batch_id=batch.id, position=position,
-                stats=json.dumps(stats), created_at=now,
-            ))
-            matched += 1
-        else:
-            from app.import_pipeline.csv_parser import split_name_team
-            from app.identity.resolver import normalize_name
-            from app.identity.team_codes import canonicalize_team
-            combined = csv_row.get("Player") or csv_row.get("player") or ""
-            name, team = split_name_team(combined)
+        try:
+            mfl_id = resolve(session, csv_row=csv_row, position=position)
+            if mfl_id is not None:
+                stats = {k: float(v) for k, v in csv_row.items()
+                         if k != "Player" and k != "player" and isinstance(v, (int, float)) and v == v}
+                session.add(PlayerProjection(
+                    player_id=mfl_id, import_batch_id=batch.id, position=position,
+                    stats=json.dumps(stats), created_at=now,
+                ))
+                matched += 1
+                matched_player_ids.add(mfl_id)
+            else:
+                from app.import_pipeline.csv_parser import split_name_team
+                from app.identity.resolver import normalize_name
+                from app.identity.team_codes import canonicalize_team
+                combined = csv_row.get("Player") or csv_row.get("player") or ""
+                name, team = split_name_team(combined)
+                session.add(ImportUnresolved(
+                    import_batch_id=batch.id,
+                    csv_row=json.dumps({k: (float(v) if isinstance(v, (int, float)) else v)
+                                        for k, v in csv_row.items() if v == v}),
+                    parsed_name=normalize_name(name),
+                    parsed_team=canonicalize_team(team),
+                ))
+                unresolved += 1
+        except Exception as e:
             session.add(ImportUnresolved(
                 import_batch_id=batch.id,
-                csv_row=json.dumps({k: (float(v) if isinstance(v, (int, float)) else v)
-                                    for k, v in csv_row.items() if v == v}),
-                parsed_name=normalize_name(name),
-                parsed_team=canonicalize_team(team),
+                csv_row=json.dumps({k: str(v) for k, v in csv_row.items()}),
+                parsed_name=None,
+                parsed_team=None,
+                resolution=f"error: {e}"[:255],
             ))
             unresolved += 1
+            continue
+
+    # Invalidate any cached fitted distribution params for players whose
+    # projection just changed, so /distribution re-fits against fresh data
+    # instead of silently serving a distribution fit to a stale projection.
+    if matched_player_ids:
+        (session.query(PlayerDistributionParams)
+                .filter(PlayerDistributionParams.player_id.in_(matched_player_ids))
+                .delete(synchronize_session=False))
 
     batch.matched_rows = matched
     batch.unresolved_rows = unresolved
