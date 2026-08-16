@@ -41,13 +41,13 @@ export function PlayerDetailPage() {
       <p>
         Floor (p10): {data.distribution.floor_p10.toFixed(1)} ·{" "}
         Median: {data.distribution.median_p50.toFixed(1)} ·{" "}
-        Ceiling (p90): {data.distribution.ceiling_p90.toFixed(1)}
+        Ceiling (p90): {data.distribution.ceiling_p90.toFixed(1)}{" "}
+        <span style={{ fontSize: "0.8em", color: "#777" }}>(per-game distribution)</span>
       </p>
       <p style={{ fontSize: "0.85em", color: "#555", maxWidth: 600 }}>
         <em>Calibration note:</em> Distributions reflect the uncertainty around the
-        imported projection. Calibration to actual season outcomes is approximate
-        (~65–70% at the 80% interval in backtest; expected to improve with real
-        preseason projections). Treat intervals as informed bounds, not guarantees.
+        imported projection. Calibration to actual season outcomes is approximate;
+        treat intervals as informed bounds, not guarantees.
       </p>
       <Histogram
         binEdges={data.distribution.histogram.bin_edges}

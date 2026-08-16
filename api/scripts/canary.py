@@ -28,7 +28,7 @@ def main() -> int:
             continue
         p50 = dist["distribution"]["median_p50"]
         diff = abs(p50 - r["projected_points"])
-        flag = "  " if diff <= 5.0 else "!!"  # season totals; allow wider tolerance
+        flag = "  " if diff <= 5.0 else "!!"  # per-game values; allow wider tolerance
         if diff > 5.0:
             bad += 1
         print(f"{r['name']:25s} {r['projected_points']:>8.1f} {p50:>8.1f} {diff:>8.1f} {flag}")
