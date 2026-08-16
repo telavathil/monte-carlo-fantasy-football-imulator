@@ -13,12 +13,16 @@ export function SettingsPage() {
   }, []);
 
   async function save(preset: Preset) {
-    const updated = await apiFetch<Config>("/api/league/config", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scoring_preset: preset }),
-    });
-    setCfg(updated);
+    try {
+      const updated = await apiFetch<Config>("/api/league/config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scoring_preset: preset }),
+      });
+      setCfg(updated);
+    } catch (e) {
+      setErr(String(e));
+    }
   }
 
   if (err) return <pre>{err}</pre>;
