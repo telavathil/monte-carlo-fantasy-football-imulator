@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import stats
 from app.sim.runner import simulate_from_params
 from app.scoring.presets import FULL_PPR
 
@@ -29,3 +30,29 @@ def test_simulate_deterministic_with_seed():
     b = simulate_from_params(params, preset=FULL_PPR, n=500, seed=99)
     assert a["mean"] == b["mean"]
     assert a["std"] == b["std"]
+
+
+def test_simulate_returns_five_ordered_percentiles():
+    params = {
+        "passing_yards": ("skewnorm", 0.0, 250.0, 40.0),
+        "passing_tds": ("nbinom", 3.0, 0.3),
+    }
+    r = simulate_from_params(params, preset=FULL_PPR, n=2000, seed=42)
+    assert r["floor_p10"] <= r["p25"] <= r["median_p50"] <= r["p75"] <= r["ceiling_p90"]
+
+
+def test_simulate_reports_sample_skewness():
+    """Right-skewed input must report positive skew; the value is the sample
+    skewness of the scored points, not a fitted shape parameter."""
+    params = {"rushing_tds": ("nbinom", 1.5, 0.25)}
+    r = simulate_from_params(params, preset=FULL_PPR, n=4000, seed=7)
+    assert isinstance(r["skewness"], float)
+    assert r["skewness"] > 0.0
+
+
+def test_skewness_is_deterministic_with_seed():
+    params = {"passing_yards": ("skewnorm", 0.2, 200.0, 40.0)}
+    a = simulate_from_params(params, preset=FULL_PPR, n=500, seed=99)
+    b = simulate_from_params(params, preset=FULL_PPR, n=500, seed=99)
+    assert a["skewness"] == b["skewness"]
+    assert a["p25"] == b["p25"] and a["p75"] == b["p75"]
