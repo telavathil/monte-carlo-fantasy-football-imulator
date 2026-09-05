@@ -5,6 +5,7 @@ import polars as pl
 import pytest
 from app.models.orm import (
     Player, PlayerProjection, PlayerDistributionSummary, LeagueConfig,
+    PlayerDistributionParams,
 )
 from tests.integration.test_routers import HEADERS, _client
 
@@ -105,4 +106,74 @@ def test_historical_refresh_invalidates_every_summary(tmp_path, monkeypatch, stu
     with SessionLocal() as db:
         assert summary_mod.invalidate_all(db) == 3
         db.commit()
+        assert db.query(PlayerDistributionSummary).count() == 0
+
+
+def test_invalidate_caches_for_empty_list_is_noop(session):
+    """The empty-list short-circuit must not raise or touch the DB."""
+    from app.import_pipeline.stats_importer import invalidate_caches_for
+    invalidate_caches_for(session, [])
+
+
+def test_historical_refresh_endpoint_invalidates_summaries(tmp_path, monkeypatch, stub_logs):
+    """POST /api/historical/refresh must invalidate every cached summary and
+    param, not just the summary_mod functions in isolation."""
+    client = _client(tmp_path, monkeypatch)
+    _seed(2)
+    client.post("/api/players/precompute?limit=2", headers=HEADERS)
+
+    # ensure_seasons would otherwise try to fetch real historical data over
+    # the network; the invalidation happens unconditionally after the call
+    # regardless of what it does, so a no-op stub is correct here.
+    monkeypatch.setattr("app.routers.historical.ensure_seasons", lambda *a, **k: None)
+
+    from app.db import SessionLocal
+    with SessionLocal() as db:
+        assert db.query(PlayerDistributionSummary).count() == 2
+
+    resp = client.post("/api/historical/refresh", json={}, headers=HEADERS)
+    assert resp.status_code == 200
+
+    with SessionLocal() as db:
+        assert db.query(PlayerDistributionSummary).count() == 0
+        assert db.query(PlayerDistributionParams).count() == 0
+
+
+def test_admin_refresh_players_invalidates_promoted_players_summaries(tmp_path, monkeypatch, stub_logs):
+    """A promotion through /api/admin/refresh-players must invalidate the
+    promoted player's cached summary — this is the exact stale-identity bug
+    class the MVP's original fix wave left open on this second path."""
+    client = _client(tmp_path, monkeypatch)
+    _seed(1)
+    client.post("/api/players/precompute?limit=1", headers=HEADERS)
+
+    from app.db import SessionLocal
+    with SessionLocal() as db:
+        assert db.query(PlayerDistributionSummary).count() == 1
+
+        # seed_players would otherwise hit the network; refresh_players's
+        # promotion logic doesn't depend on what it does here.
+        # resolve is stubbed to force a successful promotion deterministically
+        # rather than re-testing the identity resolver, which has its own suite.
+        from app.models.orm import ImportBatch, ImportUnresolved
+        import json as _json
+        now = datetime.utcnow().isoformat()
+        batch = ImportBatch(kind="stats", source="fantasypros", position="WR",
+                            filename="x.csv", status="partial", total_rows=1,
+                            matched_rows=0, unresolved_rows=1, created_at=now)
+        db.add(batch)
+        db.flush()
+        db.add(ImportUnresolved(import_batch_id=batch.id,
+                                csv_row=_json.dumps({"Player": "Ghost WR ARI"}),
+                                parsed_name="Ghost WR", parsed_team="ARI"))
+        db.commit()
+
+    monkeypatch.setattr("app.routers.admin.seed_players", lambda db: None)
+    monkeypatch.setattr("app.routers.admin.resolve", lambda db, csv_row, position: 1)
+
+    resp = client.post("/api/admin/refresh-players", headers=HEADERS)
+    assert resp.status_code == 200
+    assert resp.json()["unresolved_promoted"] == 1
+
+    with SessionLocal() as db:
         assert db.query(PlayerDistributionSummary).count() == 0
