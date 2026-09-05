@@ -50,3 +50,64 @@ describe("apiFetch", () => {
     vi.useRealTimers();
   });
 });
+
+describe("apiFetch retry", () => {
+  it("retries once on a genuine network failure and succeeds", async () => {
+    const spy = vi.fn()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(new Response("[]", { status: 200 }));
+    vi.stubGlobal("fetch", spy);
+    const { apiFetch } = await import("../../src/api/auth");
+    const result = await apiFetch("/api/players");
+    expect(result).toEqual([]);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up after the retry also fails", async () => {
+    const spy = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.stubGlobal("fetch", spy);
+    const { apiFetch, ApiError } = await import("../../src/api/auth");
+    await expect(apiFetch("/api/players")).rejects.toSatisfy(
+      (e: unknown) => e instanceof ApiError && e.status === 0
+        && e.message === "Could not reach the server. Check your connection.",
+    );
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it("never retries an HTTP error response", async () => {
+    const spy = vi.fn(async () => new Response(
+      JSON.stringify({ detail: "not found" }), { status: 404 },
+    ));
+    vi.stubGlobal("fetch", spy);
+    const { apiFetch, ApiError } = await import("../../src/api/auth");
+    await expect(apiFetch("/api/players/999/distribution")).rejects.toBeInstanceOf(ApiError);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("never retries a timeout", async () => {
+    vi.useFakeTimers();
+    // Mirrors real fetch: never settles on its own, but rejects with an
+    // AbortError once the request's AbortSignal fires (a bare `new
+    // Promise(() => {})` would ignore the signal and hang the test forever).
+    const spy = vi.fn((_url: string, requestInit?: RequestInit) => new Promise((_resolve, reject) => {
+      requestInit?.signal?.addEventListener("abort", () => {
+        reject(new DOMException("The operation was aborted.", "AbortError"));
+      });
+    }));
+    vi.stubGlobal("fetch", spy);
+    const { apiFetch, ApiError } = await import("../../src/api/auth");
+    const pending = apiFetch("/api/players");
+    // The 30s abort timer fires during the timer advance below, before the
+    // `.rejects` assertion attaches its handler — pre-attach a no-op catch
+    // so Node doesn't flag the interim gap as an unhandled rejection. The
+    // real assertion is still the `expect(pending).rejects.toSatisfy(...)`
+    // that follows; this doesn't change what it checks.
+    pending.catch(() => {});
+    await vi.advanceTimersByTimeAsync(30_000);
+    await expect(pending).rejects.toSatisfy(
+      (e: unknown) => e instanceof ApiError && e.message.includes("took too long"),
+    );
+    expect(spy).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+});
