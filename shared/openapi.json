@@ -1,0 +1,1088 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "MC Fantasy Football Simulator API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health",
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/league/config": {
+      "get": {
+        "tags": [
+          "league"
+        ],
+        "summary": "Get Config",
+        "operationId": "get_config_api_league_config_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeagueConfigOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "league"
+        ],
+        "summary": "Put Config",
+        "operationId": "put_config_api_league_config_put",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeagueConfigIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeagueConfigOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/imports/stats": {
+      "post": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Post Stats",
+        "operationId": "post_stats_api_imports_stats_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_post_stats_api_imports_stats_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportBatchResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/imports/adp": {
+      "post": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Post Adp",
+        "operationId": "post_adp_api_imports_adp_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_post_adp_api_imports_adp_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportBatchResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/imports/{batch_id}": {
+      "get": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Get Batch",
+        "operationId": "get_batch_api_imports__batch_id__get",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Batch Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/players": {
+      "get": {
+        "tags": [
+          "players"
+        ],
+        "summary": "List Players",
+        "operationId": "list_players_api_players_get",
+        "parameters": [
+          {
+            "name": "position",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Position"
+            }
+          },
+          {
+            "name": "has_projection",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Has Projection"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlayerRow"
+                  },
+                  "title": "Response List Players Api Players Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/players/{player_id}/distribution": {
+      "get": {
+        "tags": [
+          "players"
+        ],
+        "summary": "Get Distribution",
+        "operationId": "get_distribution_api_players__player_id__distribution_get",
+        "parameters": [
+          {
+            "name": "player_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Player Id"
+            }
+          },
+          {
+            "name": "n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20000,
+              "minimum": 100,
+              "default": 5000,
+              "title": "N"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DistributionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/historical/status": {
+      "get": {
+        "tags": [
+          "historical"
+        ],
+        "summary": "Status",
+        "operationId": "status_api_historical_status_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/historical/refresh": {
+      "post": {
+        "tags": [
+          "historical"
+        ],
+        "summary": "Refresh",
+        "operationId": "refresh_api_historical_refresh_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/refresh-players": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Refresh Players",
+        "operationId": "refresh_players_api_admin_refresh_players_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminRefreshResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AdminRefreshResult": {
+        "properties": {
+          "players_added": {
+            "type": "integer",
+            "title": "Players Added"
+          },
+          "players_updated": {
+            "type": "integer",
+            "title": "Players Updated"
+          },
+          "unresolved_promoted": {
+            "type": "integer",
+            "title": "Unresolved Promoted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "players_added",
+          "players_updated",
+          "unresolved_promoted"
+        ],
+        "title": "AdminRefreshResult"
+      },
+      "Body_post_adp_api_imports_adp_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "title": "File"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "source"
+        ],
+        "title": "Body_post_adp_api_imports_adp_post"
+      },
+      "Body_post_stats_api_imports_stats_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "title": "File"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "position": {
+            "type": "string",
+            "title": "Position"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "source",
+          "position"
+        ],
+        "title": "Body_post_stats_api_imports_stats_post"
+      },
+      "DistributionBody": {
+        "properties": {
+          "n_samples": {
+            "type": "integer",
+            "title": "N Samples"
+          },
+          "floor_p10": {
+            "type": "number",
+            "title": "Floor P10"
+          },
+          "median_p50": {
+            "type": "number",
+            "title": "Median P50"
+          },
+          "ceiling_p90": {
+            "type": "number",
+            "title": "Ceiling P90"
+          },
+          "mean": {
+            "type": "number",
+            "title": "Mean"
+          },
+          "std": {
+            "type": "number",
+            "title": "Std"
+          },
+          "histogram": {
+            "$ref": "#/components/schemas/Histogram"
+          }
+        },
+        "type": "object",
+        "required": [
+          "n_samples",
+          "floor_p10",
+          "median_p50",
+          "ceiling_p90",
+          "mean",
+          "std",
+          "histogram"
+        ],
+        "title": "DistributionBody"
+      },
+      "DistributionResponse": {
+        "properties": {
+          "player_id": {
+            "type": "integer",
+            "title": "Player Id"
+          },
+          "gsis_id": {
+            "type": "string",
+            "title": "Gsis Id"
+          },
+          "projection": {
+            "type": "object",
+            "title": "Projection"
+          },
+          "scoring_preset": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "half_ppr",
+              "full_ppr"
+            ],
+            "title": "Scoring Preset"
+          },
+          "computed_points": {
+            "type": "number",
+            "title": "Computed Points"
+          },
+          "distribution": {
+            "$ref": "#/components/schemas/DistributionBody"
+          },
+          "fit": {
+            "$ref": "#/components/schemas/FitInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "player_id",
+          "gsis_id",
+          "projection",
+          "scoring_preset",
+          "computed_points",
+          "distribution",
+          "fit"
+        ],
+        "title": "DistributionResponse"
+      },
+      "FitInfo": {
+        "properties": {
+          "fitted_at": {
+            "type": "string",
+            "title": "Fitted At"
+          },
+          "historical_seasons": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Historical Seasons"
+          },
+          "games_used": {
+            "type": "integer",
+            "title": "Games Used"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fitted_at",
+          "historical_seasons",
+          "games_used"
+        ],
+        "title": "FitInfo"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Histogram": {
+        "properties": {
+          "bin_edges": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Bin Edges"
+          },
+          "counts": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Counts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bin_edges",
+          "counts"
+        ],
+        "title": "Histogram"
+      },
+      "ImportBatchResult": {
+        "properties": {
+          "import_batch_id": {
+            "type": "integer",
+            "title": "Import Batch Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "stats",
+              "adp"
+            ],
+            "title": "Kind"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "total_rows": {
+            "type": "integer",
+            "title": "Total Rows"
+          },
+          "matched_rows": {
+            "type": "integer",
+            "title": "Matched Rows"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "unmapped_columns": {
+            "items": {},
+            "type": "array",
+            "title": "Unmapped Columns"
+          }
+        },
+        "type": "object",
+        "required": [
+          "import_batch_id",
+          "kind",
+          "source",
+          "status",
+          "total_rows",
+          "matched_rows",
+          "unresolved_rows"
+        ],
+        "title": "ImportBatchResult"
+      },
+      "LeagueConfigIn": {
+        "properties": {
+          "scoring_preset": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "standard",
+                  "half_ppr",
+                  "full_ppr"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scoring Preset"
+          },
+          "num_teams": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Num Teams"
+          }
+        },
+        "type": "object",
+        "title": "LeagueConfigIn"
+      },
+      "LeagueConfigOut": {
+        "properties": {
+          "scoring_preset": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "half_ppr",
+              "full_ppr"
+            ],
+            "title": "Scoring Preset"
+          },
+          "num_teams": {
+            "type": "integer",
+            "title": "Num Teams"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scoring_preset",
+          "num_teams",
+          "updated_at"
+        ],
+        "title": "LeagueConfigOut"
+      },
+      "PlayerRow": {
+        "properties": {
+          "player_id": {
+            "type": "integer",
+            "title": "Player Id"
+          },
+          "gsis_id": {
+            "type": "string",
+            "title": "Gsis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "team": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team"
+          },
+          "position": {
+            "type": "string",
+            "title": "Position"
+          },
+          "projected_stats": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Projected Stats"
+          },
+          "projected_points": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projected Points"
+          },
+          "adp_snake": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adp Snake"
+          },
+          "adp_auction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adp Auction"
+          }
+        },
+        "type": "object",
+        "required": [
+          "player_id",
+          "gsis_id",
+          "name",
+          "team",
+          "position"
+        ],
+        "title": "PlayerRow"
+      },
+      "RefreshBody": {
+        "properties": {
+          "seasons": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seasons"
+          }
+        },
+        "type": "object",
+        "title": "RefreshBody"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
