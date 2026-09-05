@@ -276,8 +276,11 @@ The 80% coverage gate holds (currently 84.60%).
 - **Stitch output is a visual target, not source.** Generated markup is decorative and not
   data-bound. Translating it into the §6 components is real work and must not be
   underestimated in planning as "paste the export".
-- **Open:** exact token values (color scale, type scale, radii, accent) come from the
-  Appendix A design pass and are not fixed by this spec.
+- **Resolved:** token values are fixed by the completed Stitch pass — see Appendix B.
+  The design system is `terminal_slate_2` (amber primary, violet secondary).
+- **The Stitch screens depict features that do not exist.** Roughly a third of the visible
+  surface area is fabricated. Appendix B triages every element into adopt / discard.
+  Implementing the screens as drawn would ship false claims about the model.
 
 ---
 
@@ -399,3 +402,115 @@ Carry over: layout, spacing rhythm, type scale, color token values, card anatomy
 proportions, and the state treatments. Rebuild rather than paste: the components
 themselves, as the §6 React pieces — especially `Sparkline`, which must be data-bound to
 real histogram bins.
+
+---
+
+## Appendix B — Stitch output: tokens and triage
+
+The Stitch pass is complete. Export: `docs/stitch_mc_sim_fantasy_analytics.zip` (7 screens,
+`code.html` + `screen.png` each, plus two design systems). Stitch project
+`projects/1837465920748163198`, reachable live via the Stitch MCP connection.
+
+**The chosen design system is `terminal_slate_2`** — amber primary, violet secondary.
+`terminal_slate_1` (cyan primary) is the rejected variant and should be ignored.
+
+### B.1 Token set
+
+| Role | Value |
+|---|---|
+| Canvas / background | `#0B0E14` |
+| Card / panel | `#151A23` |
+| Elevated (tooltip, dropdown, sticky header) | `#1C2330` |
+| Inset well (chart plot area, input field) | `#18202C` |
+| Border hairline | `#232A36` |
+| Border interactive (hover, focus) | `#3E4C5E` |
+| Text primary | `#F1F5F9` |
+| Text muted | `#7A8699` |
+| Text ghost | `#475569` |
+| **Accent primary (amber)** | `#FBBF24` |
+| **Accent secondary (violet)** | `#818CF8` |
+| Warning / unresolved | `#F59E0B` |
+| Error | `#EF4444` |
+| Success / connected | `#10B981` |
+
+Type: **Plus Jakarta Sans** for headings (700/600, tracking -0.02em to -0.03em), **Inter**
+for body and all numerics. Every numeric value uses `font-variant-numeric: tabular-nums`.
+`label-caps` is Inter 10px/600, uppercase, tracking 0.06em, in `#7A8699`.
+
+Radii: 4px base controls, 6-8px panels and containers, 0 on table cells, 2px on position
+badges. Elevation is tonal layering plus 1px hairlines — no drop shadows.
+
+Two inconsistencies to settle during implementation, since the export disagrees with
+itself: the active nav pill renders cyan `#38BDF8` on six screens but amber on the
+Players list; and the position badge palette in `terminal_slate_1`'s DESIGN.md
+(QB cyan / RB green / WR amber / TE violet) does not match what the screens render
+(QB blue / RB cyan / WR amber / TE green). Pick one of each and apply it uniformly.
+
+### B.2 Adopt
+
+- **Player card anatomy** on the list: avatar initials, name, position badge, muted
+  `POS · TEAM · ADP` line, centered distribution curve with median marker and shaded
+  p10-p90 band, large amber points value with `PTS / GAME` beneath, and a footer row of
+  `FLOOR · MEDIAN · CEILING`. This is exactly the design intent.
+- **Color-coded position badges.** Not in the brief; a genuine improvement for scanning.
+- **Three stat tiles** on the detail page, with the median tile emphasized in amber.
+- **The large distribution chart**: histogram bars with a PDF curve overlaid, percentile
+  flags along the top, shaded confidence band, x-axis labelled in points per game.
+- **Projected Stats table** with humanized labels and right-aligned tabular figures.
+- **Calibration Note** as a bordered callout — *minus its final sentence*, see B.3.
+- **Warming panel** copy and layout. The headline and body text came straight from the
+  brief and survived intact.
+- **Import screen skeleton**: dual drop zones, three count tiles, the progress bar, and
+  the unresolved table.
+
+### B.3 Discard — depicts features that do not exist
+
+Grouped by severity. The first group is not cosmetic: shipping it would tell the user the
+model does things it does not do.
+
+**Actively false claims about the model**
+
+| Element | Why it must not ship |
+|---|---|
+| Calibration Note: "Historical correlation coefficients factor Burrow passing volume dynamics" | Directly contradicts Requirements v1.2 §10.3 — simulations assume independence. There is no correlation modeling. |
+| `ENGINE TELEMETRY` → "Covariance Shift ±14.2% Norm" | Same. Implies a covariance matrix that does not exist. |
+| `Correlations` nav tab | Correlation modeling is a *Phase 5* candidate, not built. |
+| `MODEL FIT R² 0.941` | No R² is computed anywhere. |
+| `Convergence: ±0.08 pts error` | No convergence diagnostics exist. |
+| Import copy: "correlated boom/bust variance", "correlations bound" | Same independence violation. |
+
+**Deferred features drawn as if built**
+
+`TIER 1` badge · `BOOM / BUST 38.2% / 6.1%` · `Target Share 28.4%` (not in the stat
+vocabulary at all) · `Est. ~4.2 rec · 35 yds` conditional floor line · "Multi-TD upside
+trigger" · `Simulation` nav tab · unresolved-table action buttons (`Match player…`,
+`Batch Auto-Map`, `Resolve position…`, `Ignore Remainder`) — §1 non-goals make the
+unresolved view read-only · `Revert Last` / `Re-run Full Sync`.
+
+**Fabricated telemetry and chrome**
+
+`Engine Ready 0.14ms` and `Engine latency 0.14ms` — the measured p50 is **179ms**, three
+orders of magnitude off · `NODE_AWS_EUC1 #084` — deployment is Fly.io, not AWS ·
+`HTTP 204 Waiting` — a cold boot is a hanging connection, not a 204 · `Est. 4-8s` — the
+real cold boot is 15-25s · `WASM SIMD: Inactive`, `RNG Xoroshiro128+`, `BATCH SIZE 256`,
+`Seed Digest`, `Sample Pool 10,000 Vectors`, `Worker Threads: 8/8 Active`,
+`Estimated Time Remaining: 00:03.4s` — simulation runs server-side in NumPy/SciPy;
+none of this exists · `Schema Version v2.4.2-rel`, `Session ID`, `V2.4` badge ·
+user avatar — single-user bearer token, there is no user concept · the design-system
+banner across the top of the Players list ("Tri-Zone Architecture · Topaz Amber…"),
+which is Stitch narrating itself inside the mock · `SIM CONTROLS` sidebar's
+`Variance Range ±14.2%` — no such parameter exists.
+
+### B.4 Cheap additions worth considering
+
+Not in the approved scope. Each is small, and the design already assumes it — decide
+before planning rather than during.
+
+| Addition | Cost |
+|---|---|
+| P25 / P75 alongside P10 / P50 / P90 | Trivial — same sample array, one more percentile call. Makes the chart's percentile flags real. |
+| Surface the skew-normal shape parameter (the design shows `Normal Skew α=1.18`) | Already fitted and stored in `player_distribution_params`; only needs adding to the response. |
+| An iterations control bound to the existing `n` query param (100-20,000) | The `SIM CONTROLS` sidebar is otherwise fiction, but `n` is real. Precomputed summaries would still use a fixed `n`. |
+
+If none are adopted, drop the percentile flags to P10/P50/P90 only and remove the sidebar
+entirely.
