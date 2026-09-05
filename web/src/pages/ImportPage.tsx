@@ -283,7 +283,7 @@ export function ImportPage() {
         </div>
       ) : null}
 
-      {precomputing || progress ? (
+      {precomputing || (progress && progress.remaining > 0) ? (
         <Card className="flex flex-col gap-2 p-4">
           <div className="text-sm font-semibold text-primary">Computing distributions</div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-well">
