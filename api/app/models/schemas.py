@@ -88,6 +88,13 @@ class DistributionResponse(BaseModel):
     fit: FitInfo
 
 
+class PrecomputeResult(BaseModel):
+    computed: int
+    done: int
+    total: int
+    remaining: int
+
+
 class HistoricalStatus(BaseModel):
     seasons: list[int]
     last_refreshed_at: str | None

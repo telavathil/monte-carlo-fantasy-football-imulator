@@ -10,13 +10,14 @@ from app.models.orm import (
     Player, PlayerProjection, PlayerAdp, LeagueConfig,
     PlayerDistributionParams, PlayerDistributionSummary,
 )
-from app.models.schemas import PlayerRow, DistributionResponse, DistributionBody, FitInfo, Histogram, DistributionSummary
+from app.models.schemas import PlayerRow, DistributionResponse, DistributionBody, FitInfo, Histogram, DistributionSummary, PrecomputeResult
 from app.scoring.presets import PRESETS
 from app.scoring.engine import score
 from app.sim.families import family_for
 from app.sim.fitting import dispatch_fit
 from app.sim.runner import simulate_from_params
 from app.historical.fetch import game_logs
+from app.sim import summary as summary_mod
 
 router = APIRouter(dependencies=[Depends(require_token)])
 
@@ -120,6 +121,35 @@ def list_players(position: str | None = None, has_projection: bool = False,
             distribution=summary_by_player.get(p.mfl_id),
         ))
     return rows
+
+
+@router.post("/precompute", response_model=PrecomputeResult)
+def precompute(limit: int = Query(25, ge=1, le=100),
+               db: Session = Depends(get_db)):
+    """Compute the next chunk of missing summaries under the active preset.
+
+    Chunked and client-driven on purpose: a full import is 250-350 players at
+    roughly 250ms each, which is far too long for one request, and a detached
+    background task would race Fly's auto-stop. The caller loops until
+    `remaining` is 0, which is also what drives the import progress bar.
+    """
+    cfg = db.get(LeagueConfig, 1)
+    if cfg is None:
+        raise HTTPException(status_code=404, detail="config not initialized")
+    settings = get_settings()
+    pending = summary_mod.players_needing_summary(db, cfg.scoring_preset, limit)
+    for player, projection in pending:
+        summary_mod.compute_and_store(
+            db, player=player,
+            projected_stats=json.loads(projection.stats),
+            projection_id=projection.id,
+            preset_name=cfg.scoring_preset,
+            historical_seasons=settings.historical_seasons,
+        )
+    db.commit()
+    done, total = summary_mod.summary_progress(db, cfg.scoring_preset)
+    return PrecomputeResult(computed=len(pending), done=done, total=total,
+                            remaining=max(total - done, 0))
 
 
 @router.get("/{player_id}/distribution", response_model=DistributionResponse)
