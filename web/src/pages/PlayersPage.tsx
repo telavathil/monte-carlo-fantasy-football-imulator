@@ -57,15 +57,27 @@ export function PlayersPage() {
 
   const debouncedQuery = useDebounce(query, 200);
 
+  // Monotonic run id guarding against response-ordering races: a slower
+  // stale request (e.g. from a rapid preset switch) landing after a fresher
+  // one would otherwise overwrite the list with stale data (same pattern as
+  // ImportPage.tsx's loadUnresolved, fixed in c4b7e70).
+  const fetchRunId = useRef(0);
+
   const fetchRows = useCallback(() => {
+    const runId = (fetchRunId.current += 1);
     setLoading(true);
     setError(null);
     apiFetch<PlayerRow[]>("/api/players?has_projection=true")
-      .then((data) => setRows(data))
+      .then((data) => {
+        if (fetchRunId.current === runId) setRows(data);
+      })
       .catch((err) => {
+        if (fetchRunId.current !== runId) return;
         setError(err instanceof Error ? err.message : "Failed to load players.");
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (fetchRunId.current === runId) setLoading(false);
+      });
   }, []);
 
   // Load once on mount, independent of whether PresetContext has resolved its
