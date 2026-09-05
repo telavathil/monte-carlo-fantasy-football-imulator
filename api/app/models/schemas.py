@@ -65,10 +65,13 @@ class Histogram(BaseModel):
 class DistributionBody(BaseModel):
     n_samples: int
     floor_p10: float
+    p25: float
     median_p50: float
+    p75: float
     ceiling_p90: float
     mean: float
     std: float
+    skewness: float
     histogram: Histogram
 
 
@@ -81,6 +84,10 @@ class FitInfo(BaseModel):
 class DistributionResponse(BaseModel):
     player_id: int
     gsis_id: str
+    name: str
+    team: str | None = None
+    position: str
+    adp_snake: float | None = None
     projection: dict
     scoring_preset: Preset
     computed_points: float

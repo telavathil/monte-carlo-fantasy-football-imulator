@@ -111,8 +111,14 @@ from app.models.orm import (
 )
 
 
-def _seed_one_player_with_summary(status="ok"):
-    """Insert a player, a projection, a config, and one summary row."""
+def _seed_one_player_with_summary(client=None, status="ok"):
+    """Insert a player, a projection, a config, and one summary row.
+
+    `client` is accepted (and unused) so call sites can make explicit that a
+    `_client(...)` call — which rebinds `app.db.SessionLocal` — must happen
+    first; it is not otherwise needed since this helper talks to the database
+    directly via `SessionLocal`.
+    """
     from app.db import SessionLocal
     now = _dt.utcnow().isoformat()
     with SessionLocal() as db:
@@ -263,3 +269,28 @@ def test_players_list_respects_scoring_preset(tmp_path, monkeypatch):
         f"Request 2 (full_ppr): expected median 22.0, got {row['distribution']['median_p50']}"
     assert row["distribution"]["floor_p10"] == 20.0, \
         f"Request 2 (full_ppr): expected floor 20.0, got {row['distribution']['floor_p10']}"
+
+
+def test_distribution_includes_player_identity(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    _seed_one_player_with_summary(client)
+    body = client.get("/api/players/1/distribution", headers=HEADERS).json()
+    assert body["name"] == "Test Receiver"
+    assert body["team"] == "CIN"
+    assert body["position"] == "WR"
+
+
+def test_distribution_includes_five_percentiles_and_skew(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    _seed_one_player_with_summary(client)
+    d = client.get("/api/players/1/distribution", headers=HEADERS).json()["distribution"]
+    assert d["p25"] == 9.0 and d["p75"] == 18.4
+    assert d["skewness"] == 0.62
+
+
+def test_distribution_reports_insufficient_history_as_422(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    _seed_one_player_with_summary(client, status="insufficient_history")
+    resp = client.get("/api/players/1/distribution", headers=HEADERS)
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["error"] == "insufficient_history"
