@@ -30,6 +30,20 @@ class ImportBatchResult(BaseModel):
     unmapped_columns: list = Field(default_factory=list)
 
 
+class DistributionSummary(BaseModel):
+    status: Literal["ok", "insufficient_history", "unsupported_position"]
+    floor_p10: float | None = None
+    p25: float | None = None
+    median_p50: float | None = None
+    p75: float | None = None
+    ceiling_p90: float | None = None
+    mean: float | None = None
+    std: float | None = None
+    skewness: float | None = None
+    histogram: Histogram | None = None
+    computed_at: str
+
+
 class PlayerRow(BaseModel):
     player_id: int
     gsis_id: str
@@ -40,6 +54,7 @@ class PlayerRow(BaseModel):
     projected_points: float | None = None
     adp_snake: float | None = None
     adp_auction: float | None = None
+    distribution: DistributionSummary | None = None
 
 
 class Histogram(BaseModel):

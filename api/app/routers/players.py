@@ -8,9 +8,9 @@ from app.db import get_db
 from app.config import get_settings
 from app.models.orm import (
     Player, PlayerProjection, PlayerAdp, LeagueConfig,
-    PlayerDistributionParams,
+    PlayerDistributionParams, PlayerDistributionSummary,
 )
-from app.models.schemas import PlayerRow, DistributionResponse, DistributionBody, FitInfo, Histogram
+from app.models.schemas import PlayerRow, DistributionResponse, DistributionBody, FitInfo, Histogram, DistributionSummary
 from app.scoring.presets import PRESETS
 from app.scoring.engine import score
 from app.sim.families import family_for
@@ -69,6 +69,26 @@ def _latest_by_player(db: Session, model) -> dict[int, object]:
     return result
 
 
+def _summaries_by_player(db: Session, preset_name: str) -> dict[int, DistributionSummary]:
+    """One query for every summary under the active preset.
+
+    Mirrors the batching in _latest_by_player — this must not become an N+1.
+    """
+    rows = (db.query(PlayerDistributionSummary)
+              .filter(PlayerDistributionSummary.scoring_preset == preset_name)
+              .all())
+    return {
+        row.player_id: DistributionSummary(
+            status=row.status, floor_p10=row.floor_p10, p25=row.p25,
+            median_p50=row.median_p50, p75=row.p75, ceiling_p90=row.ceiling_p90,
+            mean=row.mean, std=row.std, skewness=row.skewness,
+            histogram=Histogram(**json.loads(row.histogram)) if row.histogram else None,
+            computed_at=row.computed_at,
+        )
+        for row in rows
+    }
+
+
 @router.get("", response_model=list[PlayerRow])
 def list_players(position: str | None = None, has_projection: bool = False,
                  db: Session = Depends(get_db)):
@@ -78,6 +98,7 @@ def list_players(position: str | None = None, has_projection: bool = False,
     preset = PRESETS[cfg.scoring_preset]
     proj_by_player = _latest_by_player(db, PlayerProjection)
     adp_by_player = _latest_by_player(db, PlayerAdp)
+    summary_by_player = _summaries_by_player(db, cfg.scoring_preset)
     q = db.query(Player)
     if position:
         q = q.filter(Player.position == position.upper())
@@ -96,6 +117,7 @@ def list_players(position: str | None = None, has_projection: bool = False,
             projected_points=computed,
             adp_snake=adp.adp_snake if adp else None,
             adp_auction=adp.adp_auction if adp else None,
+            distribution=summary_by_player.get(p.mfl_id),
         ))
     return rows
 

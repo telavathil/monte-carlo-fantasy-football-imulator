@@ -101,3 +101,107 @@ def test_k_def_distribution_returns_422(tmp_path, monkeypatch):
     resp = client.get("/api/players/100/distribution", headers=HEADERS)
     assert resp.status_code == 422
     assert resp.json()["detail"]["error"] == "not_supported_mvp"
+
+
+import json as _json
+from datetime import datetime as _dt
+from app.models.orm import (
+    Player as _Player, PlayerProjection as _Proj,
+    PlayerDistributionSummary as _Summary, LeagueConfig as _Cfg,
+)
+
+
+def _seed_one_player_with_summary(status="ok"):
+    """Insert a player, a projection, a config, and one summary row."""
+    from app.db import SessionLocal
+    now = _dt.utcnow().isoformat()
+    with SessionLocal() as db:
+        db.add(_Cfg(id=1, scoring_preset="half_ppr", num_teams=12, updated_at=now))
+        db.add(_Player(mfl_id=1, gsis_id="00-0000001", name="Test Receiver",
+                       merge_name="test receiver", team="CIN", position="WR",
+                       seeded_at=now))
+        db.add(_Proj(player_id=1, import_batch_id=1, position="WR",
+                     stats=_json.dumps({"receptions": 6.0}), created_at=now))
+        db.flush()
+        db.add(_Summary(
+            player_id=1, scoring_preset="half_ppr", status=status,
+            floor_p10=5.6, p25=9.0, median_p50=13.2, p75=18.4, ceiling_p90=24.6,
+            mean=13.9, std=5.4, skewness=0.62,
+            histogram=_json.dumps({"bin_edges": [0.0, 10.0, 20.0], "counts": [3, 7]}),
+            computed_points=14.2, n_samples=5000, computed_at=now))
+        db.commit()
+
+
+def test_players_list_includes_distribution_summary(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    _seed_one_player_with_summary()
+    row = client.get("/api/players", headers=HEADERS).json()[0]
+    assert row["distribution"]["median_p50"] == 13.2
+    assert row["distribution"]["p25"] == 9.0
+    assert row["distribution"]["status"] == "ok"
+    assert row["distribution"]["histogram"]["counts"] == [3, 7]
+
+
+def test_players_list_distribution_is_null_without_summary(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from app.db import SessionLocal
+    now = _dt.utcnow().isoformat()
+    with SessionLocal() as db:
+        db.add(_Cfg(id=1, scoring_preset="half_ppr", num_teams=12, updated_at=now))
+        db.add(_Player(mfl_id=1, gsis_id="00-0000001", name="No Summary",
+                       merge_name="no summary", team="CIN", position="WR",
+                       seeded_at=now))
+        db.add(_Proj(player_id=1, import_batch_id=1, position="WR",
+                     stats=_json.dumps({"receptions": 6.0}), created_at=now))
+        db.commit()
+    row = client.get("/api/players", headers=HEADERS).json()[0]
+    assert row["distribution"] is None
+
+
+def test_players_list_summary_fetch_is_batched(tmp_path, monkeypatch):
+    """One query for all summaries, not one per player.
+
+    Commit aeac800 removed an N+1 from this endpoint; adding summaries must
+    not quietly put one back."""
+    from sqlalchemy import event
+    client = _client(tmp_path, monkeypatch)
+    from app.db import SessionLocal, _engine
+    now = _dt.utcnow().isoformat()
+    with SessionLocal() as db:
+        db.add(_Cfg(id=1, scoring_preset="half_ppr", num_teams=12, updated_at=now))
+        for i in range(1, 26):
+            db.add(_Player(mfl_id=i, gsis_id=f"00-000{i:04d}", name=f"Player {i}",
+                           merge_name=f"player {i}", team="CIN", position="WR",
+                           seeded_at=now))
+            db.add(_Proj(player_id=i, import_batch_id=1, position="WR",
+                         stats=_json.dumps({"receptions": 6.0}), created_at=now))
+            db.add(_Summary(player_id=i, scoring_preset="half_ppr", status="ok",
+                            floor_p10=5.6, p25=9.0, median_p50=13.2, p75=18.4,
+                            ceiling_p90=24.6, mean=13.9, std=5.4, skewness=0.62,
+                            histogram=_json.dumps({"bin_edges": [0.0, 10.0],
+                                                   "counts": [5]}),
+                            computed_points=14.2, n_samples=5000, computed_at=now))
+        db.commit()
+
+    seen: list[str] = []
+
+    def _record(conn, cursor, statement, params, context, executemany):
+        if "player_distribution_summary" in statement:
+            seen.append(statement)
+
+    event.listen(_engine, "before_cursor_execute", _record)
+    try:
+        rows = client.get("/api/players", headers=HEADERS).json()
+    finally:
+        event.remove(_engine, "before_cursor_execute", _record)
+
+    assert len(rows) == 25
+    assert len(seen) == 1, f"expected 1 summary query, saw {len(seen)}"
+
+
+def test_players_list_surfaces_terminal_status(tmp_path, monkeypatch):
+    """A player that can never be simulated reports why, not a blank."""
+    client = _client(tmp_path, monkeypatch)
+    _seed_one_player_with_summary(status="insufficient_history")
+    row = client.get("/api/players", headers=HEADERS).json()[0]
+    assert row["distribution"]["status"] == "insufficient_history"
