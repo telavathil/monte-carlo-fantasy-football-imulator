@@ -86,6 +86,14 @@ One new table.
 | `n_samples` | Integer | |
 | `source_projection_id` | Integer | FK `player_projection.id` — the exact projection summarized |
 | `computed_at` | String | ISO timestamp |
+| `status` | String | `ok` / `insufficient_history` / `unsupported_position` |
+
+`status` exists so the precompute loop terminates. A player with fewer than `MIN_GAMES`
+career games, or at position K/DEF, can never produce a distribution — without a recorded
+terminal state those players would be re-selected on every pass and `remaining` would
+never reach zero. A non-`ok` row stores the reason and leaves the metric columns null,
+which also lets the list card and detail page render a real explanation instead of a gap.
+Metric columns are therefore nullable.
 
 Keyed by `(player_id, scoring_preset)` because the summary is points-denominated and
 therefore preset-dependent, while `player_distribution_params` is not. Switching presets
