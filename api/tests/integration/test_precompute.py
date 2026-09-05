@@ -80,3 +80,29 @@ def test_precompute_terminates_on_unsimulatable_players(tmp_path, monkeypatch, s
 def test_precompute_requires_auth(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     assert client.post("/api/players/precompute").status_code == 401
+
+
+def test_new_projection_invalidates_summary(tmp_path, monkeypatch, stub_logs):
+    """Re-importing a projection must drop the stale summary."""
+    client = _client(tmp_path, monkeypatch)
+    _seed(1)
+    client.post("/api/players/precompute?limit=1", headers=HEADERS)
+    from app.db import SessionLocal
+    from app.import_pipeline import stats_importer
+    with SessionLocal() as db:
+        assert db.query(PlayerDistributionSummary).count() == 1
+        stats_importer.invalidate_caches_for(db, [1])
+        db.commit()
+        assert db.query(PlayerDistributionSummary).count() == 0
+
+
+def test_historical_refresh_invalidates_every_summary(tmp_path, monkeypatch, stub_logs):
+    client = _client(tmp_path, monkeypatch)
+    _seed(3)
+    client.post("/api/players/precompute?limit=3", headers=HEADERS)
+    from app.db import SessionLocal
+    from app.sim import summary as summary_mod
+    with SessionLocal() as db:
+        assert summary_mod.invalidate_all(db) == 3
+        db.commit()
+        assert db.query(PlayerDistributionSummary).count() == 0
