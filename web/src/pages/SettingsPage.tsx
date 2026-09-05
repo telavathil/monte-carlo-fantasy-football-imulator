@@ -45,15 +45,6 @@ export function SettingsPage() {
   const { preset, setPreset } = usePreset();
   const [connection, setConnection] = useState<ConnectionState | null>(null);
 
-  // The token is baked into the client at build time (Vite env var); there's
-  // no backend endpoint to persist a new one against. This field is a local,
-  // editable draft so the shape the design calls for is present, without
-  // pretending a "Save" click here changes what the running app sends.
-  const [tokenDraft, setTokenDraft] = useState(
-    () => (import.meta.env.VITE_API_TOKEN as string) ?? "",
-  );
-  const [tokenSaved, setTokenSaved] = useState(true);
-
   useEffect(() => {
     let cancelled = false;
     apiFetch<HealthCheck>("/api/health")
@@ -82,25 +73,17 @@ export function SettingsPage() {
           <label className="text-xs text-muted" htmlFor="api-token">
             API token
           </label>
-          <div className="flex gap-2">
-            <input
-              id="api-token"
-              type="password"
-              value={tokenDraft}
-              onChange={(event) => {
-                setTokenDraft(event.target.value);
-                setTokenSaved(false);
-              }}
-              className="flex-1 rounded-base border border-hairline bg-well px-2 py-1.5 text-sm text-primary focus:border-accent focus:outline-none"
-            />
-            <button
-              type="button"
-              onClick={() => setTokenSaved(true)}
-              className="rounded-base bg-accent px-3 py-1.5 text-sm font-semibold text-canvas hover:bg-accent/90"
-            >
-              {tokenSaved ? "Saved" : "Save"}
-            </button>
-          </div>
+          <input
+            id="api-token"
+            type="password"
+            value={(import.meta.env.VITE_API_TOKEN as string) ?? ""}
+            readOnly
+            className="rounded-base border border-hairline bg-well px-2 py-1.5 text-sm text-muted"
+          />
+          <p className="text-xs text-muted">
+            Set via <code>VITE_API_TOKEN</code> at build time. Edit{" "}
+            <code>.env.local</code> and rebuild to change it.
+          </p>
         </div>
 
         <div className="flex items-center gap-2 text-sm">
