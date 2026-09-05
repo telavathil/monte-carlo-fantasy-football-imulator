@@ -20,21 +20,30 @@ export function PlayerDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // A ref to the latest `id`, so `fetchDistribution` can read the current
+  // player without depending on `id` — that's what keeps its identity
+  // stable across navigations (see below).
+  const idRef = useRef(id);
+  idRef.current = id;
+
   const fetchDistribution = useCallback(() => {
+    const currentId = idRef.current;
     setLoading(true);
     setError(null);
-    apiFetch<DistributionResponse>(`/api/players/${id}/distribution`)
+    apiFetch<DistributionResponse>(`/api/players/${currentId}/distribution`)
       .then((resp) => setData(resp))
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Failed to load player.");
       })
       .finally(() => setLoading(false));
-  }, [id]);
+  }, []); // stable identity forever — this is what lets effect 2 below trust
+          // that it only ever re-runs because `preset` itself changed
 
-  // Load once on mount, and again whenever the route navigates to a different
+  // Fetch on mount, and again whenever the route navigates to a different
   // player — independent of whether PresetContext has resolved its initial
   // GET yet, so the page always shows *something* even if that fetch is slow
-  // or fails.
+  // or fails. Keyed on `id` directly (not just `fetchDistribution`, which
+  // never changes) so this fires exactly once per navigation.
   useEffect(() => {
     fetchDistribution();
   }, [id, fetchDistribution]);
@@ -44,7 +53,10 @@ export function PlayerDetailPage() {
   // resolution is not a change a user made and must not trigger a redundant
   // second fetch. `presetEverSet` flips exactly once, on the render that
   // first sees a non-null preset; that specific transition is skipped. Every
-  // subsequent change is real and refetches.
+  // subsequent change is real and refetches. Because `fetchDistribution`'s
+  // identity is now stable (never changes when `id` changes), this effect
+  // can only ever be triggered by `preset` actually changing — not as a
+  // side effect of navigating to a different player.
   const presetEverSet = useRef(false);
   useEffect(() => {
     if (preset === null) return;
