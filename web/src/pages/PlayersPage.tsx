@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "../api/auth";
 import type { PlayerRow } from "../api/types";
 import { usePreset } from "../context/PresetContext";
@@ -68,11 +68,32 @@ export function PlayersPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // The backend scopes each player's projected_points/distribution to whatever
-  // scoring preset is currently configured, so a preset change must refetch.
+  // Load once on mount, independent of whether PresetContext has resolved its
+  // initial GET yet — the backend already has a real preset configured
+  // server-side even if this page doesn't know it yet, and blocking the
+  // player list on that fetch would hang the page forever if the config
+  // request ever fails.
   useEffect(() => {
     fetchRows();
-  }, [fetchRows, preset]);
+  }, [fetchRows]);
+
+  // The backend scopes each player's projected_points/distribution to
+  // whatever scoring preset is currently configured, so a genuine preset
+  // *change* must refetch. `preset` starts at `null` and resolves
+  // asynchronously (see PresetContext) — that resolution is not a change a
+  // user made, so it must not trigger a second, redundant fetch (which would
+  // also flash the list back to its loading skeleton right after the first
+  // load renders). `presetEverSet` flips exactly once, on the render that
+  // first sees a non-null preset; that specific transition is skipped.
+  // Every subsequent change is a real one and refetches.
+  const presetEverSet = useRef(false);
+  useEffect(() => {
+    if (preset === null) return;
+    const wasUnset = !presetEverSet.current;
+    presetEverSet.current = true;
+    if (wasUnset) return;
+    fetchRows();
+  }, [preset, fetchRows]);
 
   const counts = useMemo<Partial<Record<PositionFilter, number>>>(
     () => ({
