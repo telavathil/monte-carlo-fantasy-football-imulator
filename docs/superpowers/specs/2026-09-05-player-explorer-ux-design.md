@@ -538,5 +538,9 @@ before planning rather than during.
 
 **Decision:** P25/P75 and the skew readout are **adopted** and folded into §3 and §4
 above. The iterations control is **not** — so the `SIM CONTROLS` sidebar is dropped in
-full, and the Players and detail screens reclaim that 320px column. The skew readout ships
+full, and the Players and detail screens reclaim that 320px column. Consequently the
+`n` query parameter is **removed** from `GET /api/players/{id}/distribution`: nothing
+calls it, and keeping it would force a cache-bypass path that either writes off-size
+results into the summary table or needs a rollback that leaves the ORM row expired. The
+endpoint always serves the canonical cached summary. The skew readout ships
 as empirical sample skew, not as the fitted `α` the design depicts; see §4.
