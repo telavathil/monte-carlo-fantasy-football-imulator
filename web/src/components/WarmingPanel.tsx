@@ -14,7 +14,7 @@ export function WarmingPanel() {
         load.
       </p>
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-well">
-        <div className="h-full w-1/3 animate-pulse rounded-full bg-accent" />
+        <div className="h-full w-full animate-pulse rounded-full bg-accent" />
       </div>
     </Card>
   );
