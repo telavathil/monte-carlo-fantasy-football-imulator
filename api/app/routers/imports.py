@@ -1,11 +1,12 @@
+import json
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.orm import Session
 from app.auth import require_token
 from app.db import get_db
 from app.import_pipeline.stats_importer import import_stats
 from app.import_pipeline.adp_importer import import_adp
-from app.models.orm import ImportBatch
-from app.models.schemas import ImportBatchResult
+from app.models.orm import ImportBatch, ImportUnresolved
+from app.models.schemas import ImportBatchResult, UnresolvedRow
 
 router = APIRouter(dependencies=[Depends(require_token)])
 
@@ -39,6 +40,27 @@ async def post_adp(file: UploadFile = File(...), source: str = Form(...),
                                     source=source)
     batch = db.get(ImportBatch, batch_id)
     return _to_result(batch, summary)
+
+
+@router.get("/{batch_id}/unresolved", response_model=list[UnresolvedRow])
+def get_unresolved(batch_id: int, db: Session = Depends(get_db)):
+    """Rows that failed identity resolution. Read-only by design."""
+    batch = db.get(ImportBatch, batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="batch not found")
+    rows = (db.query(ImportUnresolved)
+              .filter(ImportUnresolved.import_batch_id == batch_id)
+              .all())
+    return [
+        UnresolvedRow(
+            parsed_name=row.parsed_name,
+            parsed_team=row.parsed_team,
+            position=batch.position,
+            resolution=row.resolution or "no_canonical_match",
+            csv_row=json.loads(row.csv_row),
+        )
+        for row in rows
+    ]
 
 
 @router.get("/{batch_id}")

@@ -114,6 +114,14 @@ class AdminRefreshResult(BaseModel):
     unresolved_promoted: int
 
 
+class UnresolvedRow(BaseModel):
+    parsed_name: str | None = None
+    parsed_team: str | None = None
+    position: str | None = None
+    resolution: str
+    csv_row: dict = Field(default_factory=dict)
+
+
 class ErrorResponse(BaseModel):
     error: str
     message: str
