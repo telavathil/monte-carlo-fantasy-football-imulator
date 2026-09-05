@@ -69,3 +69,15 @@ export type UnresolvedRow = {
   resolution: string;
   csv_row: Record<string, unknown>;
 };
+
+export type ImportBatchResult = {
+  import_batch_id: number;
+  kind: "stats" | "adp";
+  source: string;
+  position: string | null;
+  status: string;
+  total_rows: number;
+  matched_rows: number;
+  unresolved_rows: number;
+  unmapped_columns: unknown[];
+};
