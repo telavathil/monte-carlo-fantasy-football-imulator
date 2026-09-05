@@ -211,13 +211,15 @@ def test_players_list_respects_scoring_preset(tmp_path, monkeypatch):
     """Summaries are filtered by the active scoring preset, not mixed across presets.
 
     The composite primary key (player_id, scoring_preset) allows one player to have
-    multiple summary rows. A refactor that drops the preset filter would serve wrong
-    values to the client. This test would fail if the filter were removed."""
+    multiple summary rows. This test makes two requests with different presets and
+    asserts distinct values are returned for each. If the preset filter were removed,
+    _summaries_by_player would collapse both rows into one, causing at least one
+    assertion to fail regardless of query plan or insertion order."""
     client = _client(tmp_path, monkeypatch)
     from app.db import SessionLocal
     now = _dt.utcnow().isoformat()
     with SessionLocal() as db:
-        # Seed config with half_ppr as the active preset
+        # Seed config with half_ppr as the initial active preset
         db.add(_Cfg(id=1, scoring_preset="half_ppr", num_teams=12, updated_at=now))
         # Add a player and projection
         db.add(_Player(mfl_id=1, gsis_id="00-0000001", name="Multi-Preset",
@@ -240,9 +242,24 @@ def test_players_list_respects_scoring_preset(tmp_path, monkeypatch):
             histogram=_json.dumps({"bin_edges": [20.0, 25.0], "counts": [5]}),
             computed_points=22.0, n_samples=5000, computed_at=now))
         db.commit()
+
+    # Request 1: active preset = half_ppr
     row = client.get("/api/players", headers=HEADERS).json()[0]
-    # Assert we get the half_ppr row (active preset), not the full_ppr row
     assert row["distribution"]["median_p50"] == 12.0, \
-        f"Expected half_ppr median (12.0), got {row['distribution']['median_p50']}"
+        f"Request 1 (half_ppr): expected median 12.0, got {row['distribution']['median_p50']}"
     assert row["distribution"]["floor_p10"] == 10.0, \
-        f"Expected half_ppr floor (10.0), got {row['distribution']['floor_p10']}"
+        f"Request 1 (half_ppr): expected floor 10.0, got {row['distribution']['floor_p10']}"
+
+    # Update config to full_ppr and re-request
+    with SessionLocal() as db:
+        cfg = db.get(_Cfg, 1)
+        cfg.scoring_preset = "full_ppr"
+        cfg.updated_at = _dt.utcnow().isoformat()
+        db.commit()
+
+    # Request 2: active preset = full_ppr
+    row = client.get("/api/players", headers=HEADERS).json()[0]
+    assert row["distribution"]["median_p50"] == 22.0, \
+        f"Request 2 (full_ppr): expected median 22.0, got {row['distribution']['median_p50']}"
+    assert row["distribution"]["floor_p10"] == 20.0, \
+        f"Request 2 (full_ppr): expected floor 20.0, got {row['distribution']['floor_p10']}"
