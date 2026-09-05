@@ -204,6 +204,7 @@ export function ImportPage() {
   const [precomputing, setPrecomputing] = useState(false);
   const [precomputeError, setPrecomputeError] = useState<string | null>(null);
   const precomputeRunId = useRef(0);
+  const unresolvedRunId = useRef(0);
 
   const startPrecompute = useCallback(() => {
     const runId = (precomputeRunId.current += 1);
@@ -224,16 +225,22 @@ export function ImportPage() {
   }, []);
 
   const loadUnresolved = useCallback((batchId: number) => {
+    const runId = (unresolvedRunId.current += 1);
     setUnresolvedLoading(true);
     setUnresolvedError(null);
     apiFetch<UnresolvedRow[]>(`/api/imports/${batchId}/unresolved`)
-      .then((rows) => setUnresolvedRows(rows))
+      .then((rows) => {
+        if (unresolvedRunId.current === runId) setUnresolvedRows(rows);
+      })
       .catch((err) => {
+        if (unresolvedRunId.current !== runId) return;
         setUnresolvedError(
           err instanceof Error ? err.message : "Failed to load unresolved rows.",
         );
       })
-      .finally(() => setUnresolvedLoading(false));
+      .finally(() => {
+        if (unresolvedRunId.current === runId) setUnresolvedLoading(false);
+      });
   }, []);
 
   const handleImported = useCallback(
