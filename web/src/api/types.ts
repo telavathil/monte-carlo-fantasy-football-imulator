@@ -1,6 +1,13 @@
 export type Preset = "standard" | "half_ppr" | "full_ppr";
 export type SummaryStatus = "ok" | "insufficient_history" | "unsupported_position";
 
+export type HealthCheck = {
+  status: string;
+  db: boolean;
+  historical_ready: boolean;
+  historical_seasons: number[];
+};
+
 export type Histogram = { bin_edges: number[]; counts: number[] };
 
 export type DistributionSummary = {
