@@ -74,10 +74,13 @@ One new table.
 | `player_id` | Integer | FK `player.mfl_id`, composite PK |
 | `scoring_preset` | String | composite PK; `standard` / `half_ppr` / `full_ppr` |
 | `floor_p10` | Float | |
+| `p25` | Float | |
 | `median_p50` | Float | |
+| `p75` | Float | |
 | `ceiling_p90` | Float | |
 | `mean` | Float | |
 | `std` | Float | |
+| `skewness` | Float | Empirical skewness of the simulated sample — see §4 |
 | `histogram` | Text | JSON `{bin_edges, counts}` |
 | `computed_points` | Float | deterministic score of the projection under the preset |
 | `n_samples` | Integer | |
@@ -117,9 +120,22 @@ Each `PlayerRow` gains an optional `distribution` object, populated from
 `null` otherwise:
 
 ```json
-{ "floor_p10": 5.6, "median_p50": 13.2, "ceiling_p90": 24.6,
-  "histogram": {"bin_edges": [...], "counts": [...]}, "computed_at": "..." }
+{ "floor_p10": 5.6, "p25": 9.0, "median_p50": 13.2, "p75": 18.4, "ceiling_p90": 24.6,
+  "skewness": 0.62, "histogram": {"bin_edges": [...], "counts": [...]},
+  "computed_at": "..." }
 ```
+
+`p25` and `p75` exist because the detail chart flags five percentiles, not three. They
+cost one additional `numpy.percentile` call on a sample array already in memory.
+
+`skewness` needs care. The Stitch design labels this `Normal Skew (α=1.18)`, implying a
+single shape parameter for the outcome distribution. **No such parameter exists.** Fitting
+is per-stat: each stat gets its own family and its own parameters (skew-normal `a` for
+continuous yardage, negative-binomial for counts), and the points distribution is the
+scored convolution of all of them. There is no global α to report. What we report instead
+is the *empirical* skewness of the simulated points sample — one `scipy.stats.skew` call
+on the array the runner already produces. Label it in the UI as "Sample skew", never as a
+fitted shape parameter.
 
 Fetched as a single batched query keyed by player id, following the batching pattern
 already established for projections and ADP in `list_players` (`players.py:41`). It must
@@ -512,5 +528,7 @@ before planning rather than during.
 | Surface the skew-normal shape parameter (the design shows `Normal Skew α=1.18`) | Already fitted and stored in `player_distribution_params`; only needs adding to the response. |
 | An iterations control bound to the existing `n` query param (100-20,000) | The `SIM CONTROLS` sidebar is otherwise fiction, but `n` is real. Precomputed summaries would still use a fixed `n`. |
 
-If none are adopted, drop the percentile flags to P10/P50/P90 only and remove the sidebar
-entirely.
+**Decision:** P25/P75 and the skew readout are **adopted** and folded into §3 and §4
+above. The iterations control is **not** — so the `SIM CONTROLS` sidebar is dropped in
+full, and the Players and detail screens reclaim that 320px column. The skew readout ships
+as empirical sample skew, not as the fitted `α` the design depicts; see §4.
