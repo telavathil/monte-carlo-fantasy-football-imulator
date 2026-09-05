@@ -7,14 +7,13 @@ import { Card } from "../components/Card";
 import { StatTile } from "../components/StatTile";
 import { ErrorState } from "../components/ErrorState";
 import { PositionBadge } from "../components/PositionBadge";
-import { PresetSelector } from "../components/PresetSelector";
 import { Histogram } from "../components/Histogram";
 import { statLabel } from "../lib/statLabels";
 import { formatPoints } from "../lib/format";
 
 export function PlayerDetailPage() {
   const { id } = useParams();
-  const { preset, setPreset } = usePreset();
+  const { preset } = usePreset();
 
   const [data, setData] = useState<DistributionResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,16 +25,33 @@ export function PlayerDetailPage() {
   const idRef = useRef(id);
   idRef.current = id;
 
+  // Monotonic run id guarding against response-ordering races: navigating
+  // quickly between two players (A -> B) can let A's slower response settle
+  // after B's faster one, which would otherwise overwrite the page for
+  // player B with player A's data (same pattern as ImportPage.tsx's
+  // loadUnresolved, fixed in c4b7e70). This is independent of `idRef` above —
+  // idRef exists so `fetchDistribution` has a stable identity across
+  // navigations (correct call *count*); this ref ensures only the most
+  // recently *started* call is allowed to apply its result (correct response
+  // *ordering*). Both are needed together.
+  const fetchRunId = useRef(0);
+
   const fetchDistribution = useCallback(() => {
     const currentId = idRef.current;
+    const runId = (fetchRunId.current += 1);
     setLoading(true);
     setError(null);
     apiFetch<DistributionResponse>(`/api/players/${currentId}/distribution`)
-      .then((resp) => setData(resp))
+      .then((resp) => {
+        if (fetchRunId.current === runId) setData(resp);
+      })
       .catch((err) => {
+        if (fetchRunId.current !== runId) return;
         setError(err instanceof Error ? err.message : "Failed to load player.");
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (fetchRunId.current === runId) setLoading(false);
+      });
   }, []); // stable identity forever — this is what lets effect 2 below trust
           // that it only ever re-runs because `preset` itself changed
 
@@ -92,7 +108,6 @@ export function PlayerDetailPage() {
                 {data.position} · {data.team ?? "—"} · ADP {adpText}
               </div>
             </div>
-            {preset ? <PresetSelector value={preset} onChange={setPreset} /> : null}
           </div>
 
           <div className="grid grid-cols-3 gap-4">
@@ -148,7 +163,10 @@ export function PlayerDetailPage() {
               <h2 className="font-display text-sm font-bold text-primary">Model notes</h2>
               <div className="mt-3">
                 <div className="tabular text-lg font-semibold text-primary">
-                  Sample skew {data.distribution.skewness.toFixed(2)}
+                  Sample skew{" "}
+                  {data.distribution.skewness !== null
+                    ? data.distribution.skewness.toFixed(2)
+                    : "—"}
                 </div>
                 <p className="mt-1 text-xs text-muted">
                   Positive values mean a longer upside tail.
