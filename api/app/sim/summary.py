@@ -62,6 +62,15 @@ def _fit_params(session: Session, player: Player, projected_stats: dict,
     """
     cached = session.get(PlayerDistributionParams, player.mfl_id)
     if cached is not None:
+        # Trust the stored games_used rather than re-reading game_logs: a
+        # params row is invalidated whenever historical data is refreshed,
+        # which is the only way a player's game-log count can change, so the
+        # count recorded at fit time is still accurate. Re-checking MIN_GAMES
+        # here (instead of only on the cold path) keeps this behaviourally
+        # identical to the inline loop it replaces, which always enforces
+        # MIN_GAMES before consulting the cache.
+        if cached.games_used < MIN_GAMES:
+            return None, cached.fitted_at, cached.games_used
         params = {k: tuple(v) for k, v in json.loads(cached.params).items()}
         return params, cached.fitted_at, cached.games_used
 

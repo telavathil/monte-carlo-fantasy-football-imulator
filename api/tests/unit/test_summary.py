@@ -6,7 +6,9 @@ import polars as pl
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.models.orm import PlayerProjection, PlayerDistributionSummary
+from app.models.orm import (
+    PlayerProjection, PlayerDistributionParams, PlayerDistributionSummary,
+)
 from app.sim import summary as summary_mod
 
 
@@ -92,6 +94,30 @@ def test_compute_and_store_marks_insufficient_history(session, seeded_players, m
     assert row.median_p50 is None
 
 
+def test_compute_and_store_marks_insufficient_history_from_stale_cache(
+        session, seeded_players, monkeypatch):
+    """A cached params row whose games_used has since fallen below MIN_GAMES
+    must still produce insufficient_history, exactly like the cold path.
+
+    game_logs is stubbed to return plenty of games, so if the cache-hit path
+    ignored the stored games_used (as it did before this fix), it would
+    return the cached params and this would come back "ok" instead."""
+    _fake_logs(monkeypatch, 40)
+    session.add(PlayerDistributionParams(
+        player_id=4, params=json.dumps({}), fitted_at="2026-01-01T00:00:00",
+        historical_seasons="2023", games_used=summary_mod.MIN_GAMES - 1))
+    session.commit()
+    proj = _projection(session, 4)
+    row = summary_mod.compute_and_store(
+        session, player=seeded_players[3], projected_stats=json.loads(proj.stats),
+        projection_id=proj.id, preset_name="half_ppr",
+        historical_seasons=[2023])
+    session.commit()
+    assert row.status == "insufficient_history"
+    assert row.median_p50 is None
+    assert row.histogram is None
+
+
 def test_compute_and_store_marks_unsupported_position(session, seeded_players, monkeypatch):
     _fake_logs(monkeypatch, 40)
     player = seeded_players[2]
@@ -154,11 +180,19 @@ def test_progress_counts_terminal_rows_as_done(session, seeded_players, monkeypa
 
 
 def test_players_needing_summary_excludes_done(session, seeded_players):
+    """Both a completed and a terminal-status row must exclude their player,
+    or the precompute loop would spin forever re-selecting players that can
+    never be computed (K/DEF, insufficient history)."""
     _projection(session, 4)
     _projection(session, 1)
+    _projection(session, 2)
     now = datetime.utcnow().isoformat()
-    session.add(PlayerDistributionSummary(player_id=4, scoring_preset="half_ppr",
-                                          status="ok", computed_at=now))
+    session.add_all([
+        PlayerDistributionSummary(player_id=4, scoring_preset="half_ppr",
+                                  status="ok", computed_at=now),
+        PlayerDistributionSummary(player_id=2, scoring_preset="half_ppr",
+                                  status="insufficient_history", computed_at=now),
+    ])
     session.commit()
     pending = summary_mod.players_needing_summary(session, "half_ppr", limit=25)
     assert [p.mfl_id for p, _ in pending] == [1]
