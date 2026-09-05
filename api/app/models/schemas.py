@@ -64,14 +64,14 @@ class Histogram(BaseModel):
 
 class DistributionBody(BaseModel):
     n_samples: int
-    floor_p10: float
-    p25: float
-    median_p50: float
-    p75: float
-    ceiling_p90: float
-    mean: float
-    std: float
-    skewness: float
+    floor_p10: float | None = None
+    p25: float | None = None
+    median_p50: float | None = None
+    p75: float | None = None
+    ceiling_p90: float | None = None
+    mean: float | None = None
+    std: float | None = None
+    skewness: float | None = None
     histogram: Histogram
 
 

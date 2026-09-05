@@ -49,14 +49,14 @@ export type DistributionResponse = {
   computed_points: number;
   distribution: {
     n_samples: number;
-    floor_p10: number;
-    p25: number;
-    median_p50: number;
-    p75: number;
-    ceiling_p90: number;
-    mean: number;
-    std: number;
-    skewness: number;
+    floor_p10: number | null;
+    p25: number | null;
+    median_p50: number | null;
+    p75: number | null;
+    ceiling_p90: number | null;
+    mean: number | null;
+    std: number | null;
+    skewness: number | null;
     histogram: Histogram;
   };
   fit: { fitted_at: string; historical_seasons: number[]; games_used: number };

@@ -294,3 +294,38 @@ def test_distribution_reports_insufficient_history_as_422(tmp_path, monkeypatch)
     resp = client.get("/api/players/1/distribution", headers=HEADERS)
     assert resp.status_code == 422
     assert resp.json()["detail"]["error"] == "insufficient_history"
+
+
+def test_distribution_survives_all_metrics_null(tmp_path, monkeypatch):
+    """A legitimate 'ok' summary row can carry every metric as NULL — e.g. a
+    zero-variance simulated sample makes scipy.stats.skew return NaN, which
+    `_finite_or_none` (app/sim/summary.py) coerces to None before the row is
+    stored (see unit test
+    test_compute_and_store_nulls_non_finite_skewness). Response-model
+    validation must not reject that row: the endpoint must return 200 with
+    `distribution.skewness` (and friends) as JSON null, not 500."""
+    client = _client(tmp_path, monkeypatch)
+    from app.db import SessionLocal
+    now = _dt.utcnow().isoformat()
+    with SessionLocal() as db:
+        db.add(_Cfg(id=1, scoring_preset="half_ppr", num_teams=12, updated_at=now))
+        db.add(_Player(mfl_id=1, gsis_id="00-0000001", name="Null Metrics",
+                       merge_name="null metrics", team="CIN", position="WR",
+                       seeded_at=now))
+        db.add(_Proj(player_id=1, import_batch_id=1, position="WR",
+                     stats=_json.dumps({"receptions": 6.0}), created_at=now))
+        db.flush()
+        db.add(_Summary(
+            player_id=1, scoring_preset="half_ppr", status="ok",
+            floor_p10=None, p25=None, median_p50=None, p75=None,
+            ceiling_p90=None, mean=None, std=None, skewness=None,
+            histogram=_json.dumps({"bin_edges": [0.0, 10.0], "counts": [5]}),
+            computed_points=14.2, n_samples=5000, computed_at=now))
+        db.commit()
+
+    resp = client.get("/api/players/1/distribution", headers=HEADERS)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["distribution"]["skewness"] is None
+    assert body["distribution"]["median_p50"] is None
+    assert body["distribution"]["floor_p10"] is None

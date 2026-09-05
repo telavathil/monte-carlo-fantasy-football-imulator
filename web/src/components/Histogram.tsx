@@ -4,11 +4,11 @@ import { formatPoints } from "../lib/format";
 type Props = {
   binEdges: number[];
   counts: number[];
-  floorP10: number;
-  p25: number;
-  medianP50: number;
-  p75: number;
-  ceilingP90: number;
+  floorP10: number | null;
+  p25: number | null;
+  medianP50: number | null;
+  p75: number | null;
+  ceilingP90: number | null;
 };
 
 const BAR_FILL = "#FBBF24";
@@ -20,7 +20,7 @@ function binLabelForValue(bins: { label: string; lo: number; hi: number }[], val
   return (containing ?? bins[bins.length - 1]).label;
 }
 
-function PercentileFlag({ label, value }: { label: string; value: number }) {
+function PercentileFlag({ label, value }: { label: string; value: number | null }) {
   return (
     <div className="flex flex-col items-center gap-0.5">
       <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted">
@@ -39,9 +39,9 @@ export function Histogram({ binEdges, counts, floorP10, p25, medianP50, p75, cei
   }));
   const data = counts.map((count, i) => ({ bin: bins[i].label, count }));
 
-  const floorLabel = binLabelForValue(bins, floorP10);
-  const medianLabel = binLabelForValue(bins, medianP50);
-  const ceilingLabel = binLabelForValue(bins, ceilingP90);
+  const floorLabel = floorP10 !== null ? binLabelForValue(bins, floorP10) : null;
+  const medianLabel = medianP50 !== null ? binLabelForValue(bins, medianP50) : null;
+  const ceilingLabel = ceilingP90 !== null ? binLabelForValue(bins, ceilingP90) : null;
 
   return (
     <div>
@@ -67,25 +67,29 @@ export function Histogram({ binEdges, counts, floorP10, p25, medianP50, p75, cei
               fontSize: 11,
             }}
           />
-          <ReferenceArea
-            x1={floorLabel}
-            x2={ceilingLabel}
-            fill={BAND_FILL}
-            fillOpacity={0.15}
-            stroke="none"
-          />
+          {floorLabel !== null && ceilingLabel !== null ? (
+            <ReferenceArea
+              x1={floorLabel}
+              x2={ceilingLabel}
+              fill={BAND_FILL}
+              fillOpacity={0.15}
+              stroke="none"
+            />
+          ) : null}
           <Bar dataKey="count" fill={BAR_FILL} isAnimationActive={false} />
-          <ReferenceLine
-            x={medianLabel}
-            stroke="#F1F5F9"
-            strokeDasharray="4 4"
-            label={{
-              value: formatPoints(medianP50),
-              position: "top",
-              fill: "#F1F5F9",
-              fontSize: 11,
-            }}
-          />
+          {medianLabel !== null ? (
+            <ReferenceLine
+              x={medianLabel}
+              stroke="#F1F5F9"
+              strokeDasharray="4 4"
+              label={{
+                value: formatPoints(medianP50),
+                position: "top",
+                fill: "#F1F5F9",
+                fontSize: 11,
+              }}
+            />
+          ) : null}
         </BarChart>
       </ResponsiveContainer>
     </div>
