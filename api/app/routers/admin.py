@@ -45,6 +45,13 @@ def refresh_players(db: Session = Depends(get_db)):
                 stats=json.dumps(stats), created_at=now,
             ))
             promoted += 1
+
+    # Re-seeding can remap identity, which makes any cached derivation for a
+    # promoted player point at the wrong person.
+    if promoted:
+        from app.import_pipeline.stats_importer import invalidate_caches_for
+        invalidate_caches_for(db, [u.resolved_player_id for u in unresolved
+                                   if u.resolved_player_id is not None])
     db.commit()
     return AdminRefreshResult(players_added=added, players_updated=updated,
                               unresolved_promoted=promoted)

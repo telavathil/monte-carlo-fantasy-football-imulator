@@ -101,3 +101,231 @@ def test_k_def_distribution_returns_422(tmp_path, monkeypatch):
     resp = client.get("/api/players/100/distribution", headers=HEADERS)
     assert resp.status_code == 422
     assert resp.json()["detail"]["error"] == "not_supported_mvp"
+
+
+import json as _json
+from datetime import datetime as _dt
+from app.models.orm import (
+    Player as _Player, PlayerProjection as _Proj,
+    PlayerDistributionSummary as _Summary, LeagueConfig as _Cfg,
+)
+
+
+def _seed_one_player_with_summary(client=None, status="ok"):
+    """Insert a player, a projection, a config, and one summary row.
+
+    `client` is accepted (and unused) so call sites can make explicit that a
+    `_client(...)` call — which rebinds `app.db.SessionLocal` — must happen
+    first; it is not otherwise needed since this helper talks to the database
+    directly via `SessionLocal`.
+    """
+    from app.db import SessionLocal
+    now = _dt.utcnow().isoformat()
+    with SessionLocal() as db:
+        db.add(_Cfg(id=1, scoring_preset="half_ppr", num_teams=12, updated_at=now))
+        db.add(_Player(mfl_id=1, gsis_id="00-0000001", name="Test Receiver",
+                       merge_name="test receiver", team="CIN", position="WR",
+                       seeded_at=now))
+        db.add(_Proj(player_id=1, import_batch_id=1, position="WR",
+                     stats=_json.dumps({"receptions": 6.0}), created_at=now))
+        db.flush()
+        db.add(_Summary(
+            player_id=1, scoring_preset="half_ppr", status=status,
+            floor_p10=5.6, p25=9.0, median_p50=13.2, p75=18.4, ceiling_p90=24.6,
+            mean=13.9, std=5.4, skewness=0.62,
+            histogram=_json.dumps({"bin_edges": [0.0, 10.0, 20.0], "counts": [3, 7]}),
+            computed_points=14.2, n_samples=5000, computed_at=now))
+        db.commit()
+
+
+def test_players_list_includes_distribution_summary(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    _seed_one_player_with_summary()
+    row = client.get("/api/players", headers=HEADERS).json()[0]
+    assert row["distribution"]["median_p50"] == 13.2
+    assert row["distribution"]["p25"] == 9.0
+    assert row["distribution"]["status"] == "ok"
+    assert row["distribution"]["histogram"]["counts"] == [3, 7]
+
+
+def test_players_list_distribution_is_null_without_summary(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from app.db import SessionLocal
+    now = _dt.utcnow().isoformat()
+    with SessionLocal() as db:
+        db.add(_Cfg(id=1, scoring_preset="half_ppr", num_teams=12, updated_at=now))
+        db.add(_Player(mfl_id=1, gsis_id="00-0000001", name="No Summary",
+                       merge_name="no summary", team="CIN", position="WR",
+                       seeded_at=now))
+        db.add(_Proj(player_id=1, import_batch_id=1, position="WR",
+                     stats=_json.dumps({"receptions": 6.0}), created_at=now))
+        db.commit()
+    row = client.get("/api/players", headers=HEADERS).json()[0]
+    assert row["distribution"] is None
+
+
+def test_players_list_summary_fetch_is_batched(tmp_path, monkeypatch):
+    """One query for all summaries, not one per player.
+
+    Commit aeac800 removed an N+1 from this endpoint; adding summaries must
+    not quietly put one back."""
+    from sqlalchemy import event
+    client = _client(tmp_path, monkeypatch)
+    from app.db import SessionLocal, _engine
+    now = _dt.utcnow().isoformat()
+    with SessionLocal() as db:
+        db.add(_Cfg(id=1, scoring_preset="half_ppr", num_teams=12, updated_at=now))
+        for i in range(1, 26):
+            db.add(_Player(mfl_id=i, gsis_id=f"00-000{i:04d}", name=f"Player {i}",
+                           merge_name=f"player {i}", team="CIN", position="WR",
+                           seeded_at=now))
+            db.add(_Proj(player_id=i, import_batch_id=1, position="WR",
+                         stats=_json.dumps({"receptions": 6.0}), created_at=now))
+            db.add(_Summary(player_id=i, scoring_preset="half_ppr", status="ok",
+                            floor_p10=5.6, p25=9.0, median_p50=13.2, p75=18.4,
+                            ceiling_p90=24.6, mean=13.9, std=5.4, skewness=0.62,
+                            histogram=_json.dumps({"bin_edges": [0.0, 10.0],
+                                                   "counts": [5]}),
+                            computed_points=14.2, n_samples=5000, computed_at=now))
+        db.commit()
+
+    seen: list[str] = []
+
+    def _record(conn, cursor, statement, params, context, executemany):
+        if "player_distribution_summary" in statement:
+            seen.append(statement)
+
+    event.listen(_engine, "before_cursor_execute", _record)
+    try:
+        rows = client.get("/api/players", headers=HEADERS).json()
+    finally:
+        event.remove(_engine, "before_cursor_execute", _record)
+
+    assert len(rows) == 25
+    assert len(seen) == 1, f"expected 1 summary query, saw {len(seen)}"
+
+
+def test_players_list_surfaces_terminal_status(tmp_path, monkeypatch):
+    """A player that can never be simulated reports why, not a blank."""
+    client = _client(tmp_path, monkeypatch)
+    _seed_one_player_with_summary(status="insufficient_history")
+    row = client.get("/api/players", headers=HEADERS).json()[0]
+    assert row["distribution"]["status"] == "insufficient_history"
+
+
+def test_players_list_respects_scoring_preset(tmp_path, monkeypatch):
+    """Summaries are filtered by the active scoring preset, not mixed across presets.
+
+    The composite primary key (player_id, scoring_preset) allows one player to have
+    multiple summary rows. This test makes two requests with different presets and
+    asserts distinct values are returned for each. If the preset filter were removed,
+    _summaries_by_player would collapse both rows into one, causing at least one
+    assertion to fail regardless of query plan or insertion order."""
+    client = _client(tmp_path, monkeypatch)
+    from app.db import SessionLocal
+    now = _dt.utcnow().isoformat()
+    with SessionLocal() as db:
+        # Seed config with half_ppr as the initial active preset
+        db.add(_Cfg(id=1, scoring_preset="half_ppr", num_teams=12, updated_at=now))
+        # Add a player and projection
+        db.add(_Player(mfl_id=1, gsis_id="00-0000001", name="Multi-Preset",
+                       merge_name="multi-preset", team="CIN", position="WR",
+                       seeded_at=now))
+        db.add(_Proj(player_id=1, import_batch_id=1, position="WR",
+                     stats=_json.dumps({"receptions": 6.0}), created_at=now))
+        db.flush()
+        # Add TWO summaries for the same player with DIFFERENT preset values
+        db.add(_Summary(
+            player_id=1, scoring_preset="half_ppr", status="ok",
+            floor_p10=10.0, p25=11.0, median_p50=12.0, p75=13.0, ceiling_p90=14.0,
+            mean=12.0, std=2.0, skewness=0.1,
+            histogram=_json.dumps({"bin_edges": [10.0, 15.0], "counts": [5]}),
+            computed_points=12.0, n_samples=5000, computed_at=now))
+        db.add(_Summary(
+            player_id=1, scoring_preset="full_ppr", status="ok",
+            floor_p10=20.0, p25=21.0, median_p50=22.0, p75=23.0, ceiling_p90=24.0,
+            mean=22.0, std=2.0, skewness=0.1,
+            histogram=_json.dumps({"bin_edges": [20.0, 25.0], "counts": [5]}),
+            computed_points=22.0, n_samples=5000, computed_at=now))
+        db.commit()
+
+    # Request 1: active preset = half_ppr
+    row = client.get("/api/players", headers=HEADERS).json()[0]
+    assert row["distribution"]["median_p50"] == 12.0, \
+        f"Request 1 (half_ppr): expected median 12.0, got {row['distribution']['median_p50']}"
+    assert row["distribution"]["floor_p10"] == 10.0, \
+        f"Request 1 (half_ppr): expected floor 10.0, got {row['distribution']['floor_p10']}"
+
+    # Update config to full_ppr and re-request
+    with SessionLocal() as db:
+        cfg = db.get(_Cfg, 1)
+        cfg.scoring_preset = "full_ppr"
+        cfg.updated_at = _dt.utcnow().isoformat()
+        db.commit()
+
+    # Request 2: active preset = full_ppr
+    row = client.get("/api/players", headers=HEADERS).json()[0]
+    assert row["distribution"]["median_p50"] == 22.0, \
+        f"Request 2 (full_ppr): expected median 22.0, got {row['distribution']['median_p50']}"
+    assert row["distribution"]["floor_p10"] == 20.0, \
+        f"Request 2 (full_ppr): expected floor 20.0, got {row['distribution']['floor_p10']}"
+
+
+def test_distribution_includes_player_identity(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    _seed_one_player_with_summary(client)
+    body = client.get("/api/players/1/distribution", headers=HEADERS).json()
+    assert body["name"] == "Test Receiver"
+    assert body["team"] == "CIN"
+    assert body["position"] == "WR"
+
+
+def test_distribution_includes_five_percentiles_and_skew(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    _seed_one_player_with_summary(client)
+    d = client.get("/api/players/1/distribution", headers=HEADERS).json()["distribution"]
+    assert d["p25"] == 9.0 and d["p75"] == 18.4
+    assert d["skewness"] == 0.62
+
+
+def test_distribution_reports_insufficient_history_as_422(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    _seed_one_player_with_summary(client, status="insufficient_history")
+    resp = client.get("/api/players/1/distribution", headers=HEADERS)
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["error"] == "insufficient_history"
+
+
+def test_distribution_survives_all_metrics_null(tmp_path, monkeypatch):
+    """A legitimate 'ok' summary row can carry every metric as NULL — e.g. a
+    zero-variance simulated sample makes scipy.stats.skew return NaN, which
+    `_finite_or_none` (app/sim/summary.py) coerces to None before the row is
+    stored (see unit test
+    test_compute_and_store_nulls_non_finite_skewness). Response-model
+    validation must not reject that row: the endpoint must return 200 with
+    `distribution.skewness` (and friends) as JSON null, not 500."""
+    client = _client(tmp_path, monkeypatch)
+    from app.db import SessionLocal
+    now = _dt.utcnow().isoformat()
+    with SessionLocal() as db:
+        db.add(_Cfg(id=1, scoring_preset="half_ppr", num_teams=12, updated_at=now))
+        db.add(_Player(mfl_id=1, gsis_id="00-0000001", name="Null Metrics",
+                       merge_name="null metrics", team="CIN", position="WR",
+                       seeded_at=now))
+        db.add(_Proj(player_id=1, import_batch_id=1, position="WR",
+                     stats=_json.dumps({"receptions": 6.0}), created_at=now))
+        db.flush()
+        db.add(_Summary(
+            player_id=1, scoring_preset="half_ppr", status="ok",
+            floor_p10=None, p25=None, median_p50=None, p75=None,
+            ceiling_p90=None, mean=None, std=None, skewness=None,
+            histogram=_json.dumps({"bin_edges": [0.0, 10.0], "counts": [5]}),
+            computed_points=14.2, n_samples=5000, computed_at=now))
+        db.commit()
+
+    resp = client.get("/api/players/1/distribution", headers=HEADERS)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["distribution"]["skewness"] is None
+    assert body["distribution"]["median_p50"] is None
+    assert body["distribution"]["floor_p10"] is None

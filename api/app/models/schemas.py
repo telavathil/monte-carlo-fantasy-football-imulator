@@ -30,6 +30,20 @@ class ImportBatchResult(BaseModel):
     unmapped_columns: list = Field(default_factory=list)
 
 
+class DistributionSummary(BaseModel):
+    status: Literal["ok", "insufficient_history", "unsupported_position"]
+    floor_p10: float | None = None
+    p25: float | None = None
+    median_p50: float | None = None
+    p75: float | None = None
+    ceiling_p90: float | None = None
+    mean: float | None = None
+    std: float | None = None
+    skewness: float | None = None
+    histogram: Histogram | None = None
+    computed_at: str
+
+
 class PlayerRow(BaseModel):
     player_id: int
     gsis_id: str
@@ -40,6 +54,7 @@ class PlayerRow(BaseModel):
     projected_points: float | None = None
     adp_snake: float | None = None
     adp_auction: float | None = None
+    distribution: DistributionSummary | None = None
 
 
 class Histogram(BaseModel):
@@ -49,11 +64,14 @@ class Histogram(BaseModel):
 
 class DistributionBody(BaseModel):
     n_samples: int
-    floor_p10: float
-    median_p50: float
-    ceiling_p90: float
-    mean: float
-    std: float
+    floor_p10: float | None = None
+    p25: float | None = None
+    median_p50: float | None = None
+    p75: float | None = None
+    ceiling_p90: float | None = None
+    mean: float | None = None
+    std: float | None = None
+    skewness: float | None = None
     histogram: Histogram
 
 
@@ -66,11 +84,22 @@ class FitInfo(BaseModel):
 class DistributionResponse(BaseModel):
     player_id: int
     gsis_id: str
+    name: str
+    team: str | None = None
+    position: str
+    adp_snake: float | None = None
     projection: dict
     scoring_preset: Preset
     computed_points: float
     distribution: DistributionBody
     fit: FitInfo
+
+
+class PrecomputeResult(BaseModel):
+    computed: int
+    done: int
+    total: int
+    remaining: int
 
 
 class HistoricalStatus(BaseModel):
@@ -83,6 +112,14 @@ class AdminRefreshResult(BaseModel):
     players_added: int
     players_updated: int
     unresolved_promoted: int
+
+
+class UnresolvedRow(BaseModel):
+    parsed_name: str | None = None
+    parsed_team: str | None = None
+    position: str | None = None
+    resolution: str
+    csv_row: dict = Field(default_factory=dict)
 
 
 class ErrorResponse(BaseModel):

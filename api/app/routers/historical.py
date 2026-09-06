@@ -7,6 +7,7 @@ from app.db import get_db
 from app.config import get_settings
 from app.historical.fetch import ensure_seasons
 from app.models.orm import PlayerDistributionParams
+from app.sim import summary as summary_mod
 
 router = APIRouter(dependencies=[Depends(require_token)])
 
@@ -42,7 +43,9 @@ def refresh(body: RefreshBody, db: Session = Depends(get_db)):
         if path.exists():
             path.unlink()
     ensure_seasons(years)
-    # Invalidate all cached fit params
+    # Invalidate all cached fit params and distribution summaries — a
+    # historical refresh changes the game logs everything was fitted from.
     db.query(PlayerDistributionParams).delete()
+    summary_mod.invalidate_all(db)
     db.commit()
     return {"job_status": "complete"}

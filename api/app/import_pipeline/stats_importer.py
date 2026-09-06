@@ -9,6 +9,22 @@ from app.identity.resolver import resolve
 from app.models.orm import (
     ImportBatch, PlayerProjection, ImportUnresolved, PlayerDistributionParams,
 )
+from app.sim import summary as summary_mod
+
+
+def invalidate_caches_for(session: Session, player_ids) -> None:
+    """Drop every cached derivation for these players.
+
+    Fits and summaries must go together: a new projection changes the target
+    means the fits were shifted to, so both are stale.
+    """
+    ids = list(player_ids)
+    if not ids:
+        return
+    (session.query(PlayerDistributionParams)
+            .filter(PlayerDistributionParams.player_id.in_(ids))
+            .delete(synchronize_session=False))
+    summary_mod.invalidate_for_players(session, ids)
 
 
 def import_stats(session: Session, *, content: bytes, filename: str,
@@ -74,13 +90,10 @@ def import_stats(session: Session, *, content: bytes, filename: str,
             unresolved += 1
             continue
 
-    # Invalidate any cached fitted distribution params for players whose
-    # projection just changed, so /distribution re-fits against fresh data
-    # instead of silently serving a distribution fit to a stale projection.
-    if matched_player_ids:
-        (session.query(PlayerDistributionParams)
-                .filter(PlayerDistributionParams.player_id.in_(matched_player_ids))
-                .delete(synchronize_session=False))
+    # Invalidate any cached fitted distribution params and summaries for
+    # players whose projection just changed, so /distribution re-fits
+    # against fresh data instead of silently serving stale derivations.
+    invalidate_caches_for(session, matched_player_ids)
 
     batch.matched_rows = matched
     batch.unresolved_rows = unresolved

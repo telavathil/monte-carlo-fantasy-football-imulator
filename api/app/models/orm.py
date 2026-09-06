@@ -126,3 +126,36 @@ class PlayerDistributionParams(Base):
     fitted_at = Column(String, nullable=False)
     historical_seasons = Column(String, nullable=False)
     games_used = Column(Integer, nullable=False)
+
+
+class PlayerDistributionSummary(Base):
+    """Points-denominated simulation output, cached per (player, preset).
+
+    Distinct from PlayerDistributionParams, which caches the per-stat fits and
+    is preset-independent. `status` records a terminal outcome so the
+    precompute loop terminates instead of re-selecting players that can never
+    produce a distribution.
+    """
+    __tablename__ = "player_distribution_summary"
+    player_id = Column(Integer, ForeignKey("player.mfl_id"), primary_key=True)
+    scoring_preset = Column(String, primary_key=True)
+    status = Column(String, nullable=False)
+    floor_p10 = Column(Float)
+    p25 = Column(Float)
+    median_p50 = Column(Float)
+    p75 = Column(Float)
+    ceiling_p90 = Column(Float)
+    mean = Column(Float)
+    std = Column(Float)
+    skewness = Column(Float)
+    histogram = Column(Text)  # JSON {bin_edges, counts}
+    computed_points = Column(Float)
+    n_samples = Column(Integer)
+    source_projection_id = Column(Integer, ForeignKey("player_projection.id"))
+    computed_at = Column(String, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("scoring_preset IN ('standard','half_ppr','full_ppr')"),
+        CheckConstraint(
+            "status IN ('ok','insufficient_history','unsupported_position')"),
+    )

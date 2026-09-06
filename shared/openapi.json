@@ -248,6 +248,69 @@
         }
       }
     },
+    "/api/imports/{batch_id}/unresolved": {
+      "get": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Get Unresolved",
+        "description": "Rows that failed identity resolution. Read-only by design.",
+        "operationId": "get_unresolved_api_imports__batch_id__unresolved_get",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Batch Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UnresolvedRow"
+                  },
+                  "title": "Response Get Unresolved Api Imports  Batch Id  Unresolved Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/imports/{batch_id}": {
       "get": {
         "tags": [
@@ -383,6 +446,68 @@
         }
       }
     },
+    "/api/players/precompute": {
+      "post": {
+        "tags": [
+          "players"
+        ],
+        "summary": "Precompute",
+        "description": "Compute the next chunk of missing summaries under the active preset.\n\nChunked and client-driven on purpose: a full import is 250-350 players at\nroughly 250ms each, which is far too long for one request, and a detached\nbackground task would race Fly's auto-stop. The caller loops until\n`remaining` is 0, which is also what drives the import progress bar.",
+        "operationId": "precompute_api_players_precompute_post",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrecomputeResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/players/{player_id}/distribution": {
       "get": {
         "tags": [
@@ -398,18 +523,6 @@
             "schema": {
               "type": "integer",
               "title": "Player Id"
-            }
-          },
-          {
-            "name": "n",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 20000,
-              "minimum": 100,
-              "default": 5000,
-              "title": "N"
             }
           },
           {
@@ -685,9 +798,17 @@
             "type": "number",
             "title": "Floor P10"
           },
+          "p25": {
+            "type": "number",
+            "title": "P25"
+          },
           "median_p50": {
             "type": "number",
             "title": "Median P50"
+          },
+          "p75": {
+            "type": "number",
+            "title": "P75"
           },
           "ceiling_p90": {
             "type": "number",
@@ -701,6 +822,10 @@
             "type": "number",
             "title": "Std"
           },
+          "skewness": {
+            "type": "number",
+            "title": "Skewness"
+          },
           "histogram": {
             "$ref": "#/components/schemas/Histogram"
           }
@@ -709,10 +834,13 @@
         "required": [
           "n_samples",
           "floor_p10",
+          "p25",
           "median_p50",
+          "p75",
           "ceiling_p90",
           "mean",
           "std",
+          "skewness",
           "histogram"
         ],
         "title": "DistributionBody"
@@ -726,6 +854,36 @@
           "gsis_id": {
             "type": "string",
             "title": "Gsis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "team": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team"
+          },
+          "position": {
+            "type": "string",
+            "title": "Position"
+          },
+          "adp_snake": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adp Snake"
           },
           "projection": {
             "type": "object",
@@ -755,6 +913,8 @@
         "required": [
           "player_id",
           "gsis_id",
+          "name",
+          "position",
           "projection",
           "scoring_preset",
           "computed_points",
@@ -762,6 +922,127 @@
           "fit"
         ],
         "title": "DistributionResponse"
+      },
+      "DistributionSummary": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "insufficient_history",
+              "unsupported_position"
+            ],
+            "title": "Status"
+          },
+          "floor_p10": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Floor P10"
+          },
+          "p25": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P25"
+          },
+          "median_p50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median P50"
+          },
+          "p75": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P75"
+          },
+          "ceiling_p90": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ceiling P90"
+          },
+          "mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean"
+          },
+          "std": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Std"
+          },
+          "skewness": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skewness"
+          },
+          "histogram": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Histogram"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "computed_at": {
+            "type": "string",
+            "title": "Computed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "computed_at"
+        ],
+        "title": "DistributionSummary"
       },
       "FitInfo": {
         "properties": {
@@ -1018,6 +1299,16 @@
               }
             ],
             "title": "Adp Auction"
+          },
+          "distribution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DistributionSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -1029,6 +1320,34 @@
           "position"
         ],
         "title": "PlayerRow"
+      },
+      "PrecomputeResult": {
+        "properties": {
+          "computed": {
+            "type": "integer",
+            "title": "Computed"
+          },
+          "done": {
+            "type": "integer",
+            "title": "Done"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "remaining": {
+            "type": "integer",
+            "title": "Remaining"
+          }
+        },
+        "type": "object",
+        "required": [
+          "computed",
+          "done",
+          "total",
+          "remaining"
+        ],
+        "title": "PrecomputeResult"
       },
       "RefreshBody": {
         "properties": {
@@ -1049,6 +1368,56 @@
         },
         "type": "object",
         "title": "RefreshBody"
+      },
+      "UnresolvedRow": {
+        "properties": {
+          "parsed_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parsed Name"
+          },
+          "parsed_team": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parsed Team"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          },
+          "resolution": {
+            "type": "string",
+            "title": "Resolution"
+          },
+          "csv_row": {
+            "type": "object",
+            "title": "Csv Row"
+          }
+        },
+        "type": "object",
+        "required": [
+          "resolution"
+        ],
+        "title": "UnresolvedRow"
       },
       "ValidationError": {
         "properties": {
